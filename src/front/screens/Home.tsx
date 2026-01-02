@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Animated } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Animated, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -42,6 +42,7 @@ type RootStackParamList = {
       Cupons: undefined;
       Search: undefined;
       MyOrders: undefined;
+      Profile: undefined;
     };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -213,7 +214,7 @@ export function Home() {
     { label: 'Início', icon: HomeIcon, active: true, onPress: () => navigation.navigate('Home') },
     { label: 'Buscar', icon: Search, active: false, onPress: () => navigation.navigate('Search') },
     { label: 'Pedidos', icon: Receipt, active: false, onPress: () => navigation.navigate('MyOrders') },
-    { label: 'Perfil', icon: User, active: false },
+    { label: 'Perfil', icon: User, active: false, onPress: () => navigation.navigate('Profile') },
   ];
 
   return (
@@ -221,16 +222,17 @@ export function Home() {
       <StatusBar 
         style={refreshing || isHeaderVisible ? "light" : "dark"}
         backgroundColor={refreshing || isHeaderVisible ? colors.primary : colors.white}
+        translucent={false}
       />
       <SafeAreaView 
-        style={[styles.safeArea, { backgroundColor: refreshing ? colors.primary : (isHeaderVisible ? colors.primary : colors.white) }]} 
+        style={[styles.safeArea, { backgroundColor: refreshing || isHeaderVisible ? colors.primary : colors.white }]} 
         edges={['top']}
       >
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: refreshing || isHeaderVisible ? colors.primary : colors.white }]}>
           <ScrollView 
             ref={scrollViewRef}
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
+            style={[styles.scrollView, { backgroundColor: refreshing || isHeaderVisible ? colors.primary : colors.white }]}
+            contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.white }]}
             showsVerticalScrollIndicator={false}
             onScroll={handleScroll}
             scrollEventThrottle={16}
@@ -238,8 +240,8 @@ export function Home() {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={onRefresh}
-                tintColor={colors.white}
-                colors={[colors.white]}
+                tintColor="#FFFFFF"
+                colors={["#FFFFFF"]}
                 progressBackgroundColor={colors.primary}
               />
             }
@@ -248,7 +250,7 @@ export function Home() {
               <>
                 {/* Skeleton Header */}
                 <View style={styles.skeletonHeaderContainer}>
-                  <Skeleton width="100%" height={120} borderRadius={0} />
+                  <Skeleton width="100%" height={120} borderRadius={0} style={{ backgroundColor: colors.primary }} />
                 </View>
 
                 {/* Skeleton Content */}
@@ -377,6 +379,7 @@ export function Home() {
             scrollEventThrottle={16}
           >
             <ProductCard 
+              id="home-offer-1"
               title="Nome do produto"
               description="Nome do produto"
               showDriver={true}
@@ -387,6 +390,7 @@ export function Home() {
               type="Offer"
             />
             <ProductCard 
+              id="home-default-1"
               title="Nome do produto"
               description="Nome do produto"
               showDriver={false}
@@ -394,6 +398,7 @@ export function Home() {
               type="Default"
             />
             <ProductCard 
+              id="home-offer-2"
               title="Nome do produto"
               description="Nome do produto"
               showDriver={true}
@@ -404,6 +409,7 @@ export function Home() {
               type="Offer"
             />
             <ProductCard 
+              id="home-offer-3"
               title="Nome do produto"
               description="Nome do produto"
               showDriver={true}
@@ -438,6 +444,7 @@ export function Home() {
                 style={styles.popularCardWrapper}
               >
                 <ProductCard 
+                  id={item.id}
                   title={item.title}
                   description={item.description}
                   showDriver={item.showDriver}
@@ -562,9 +569,11 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingBottom: spacing.lg,
+    rowGap: 12, // Gap vertical de 12px entre linhas
   },
   popularCardWrapper: {
     width: '48%', // 2 colunas com gap
+    alignSelf: 'flex-start', // Permite que cards de alturas diferentes se alinhem no topo
   },
   popularCard: {
     width: '100%', // Fill do container - sobrescreve a largura fixa de 117px

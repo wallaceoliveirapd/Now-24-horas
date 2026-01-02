@@ -19,7 +19,6 @@ export default function App() {
   return (
     <CartProvider>
       <AppNavigator />
-      <StatusBar style="auto" />
     </CartProvider>
   );
 }

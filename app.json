@@ -26,7 +26,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O aplicativo precisa acessar suas fotos para alterar a foto de perfil.",
+          "cameraPermission": "O aplicativo precisa acessar a câmera para tirar uma foto de perfil."
+        }
+      ]
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -111,18 +111,19 @@ export function MyOrders() {
         translucent={false}
       />
       <SafeAreaView 
-        style={styles.safeArea} 
+        style={[styles.safeArea, { backgroundColor: colors.white }]} 
         edges={['top']}
       >
+        <View style={{ backgroundColor: colors.gray[50], flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Button
-            variant="ghost"
+          <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.backButton}
+            activeOpacity={0.7}
           >
-            <ChevronLeft size={24} color={colors.black} />
-          </Button>
+            <ChevronLeft size={24} color={colors.black} strokeWidth={2} />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Meus pedidos</Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -188,6 +189,7 @@ export function MyOrders() {
             ))}
           </View>
         </ScrollView>
+        </View>
       </SafeAreaView>
     </>
   );
@@ -211,8 +213,8 @@ const styles = StyleSheet.create({
   backButton: {
     width: 24,
     height: 24,
-    padding: 0,
-    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 18,

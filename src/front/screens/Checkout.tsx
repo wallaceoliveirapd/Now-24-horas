@@ -182,9 +182,10 @@ export function Checkout() {
         translucent={false}
       />
       <SafeAreaView 
-        style={styles.safeArea} 
+        style={[styles.safeArea, { backgroundColor: colors.white }]} 
         edges={['top']}
       >
+        <View style={{ backgroundColor: colors.gray[50], flex: 1 }}>
         <KeyboardAvoidingView
           style={styles.keyboardAvoidingView}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -808,6 +809,7 @@ export function Checkout() {
             </View>
           </View>
         </ModalBottomSheet>
+        </View>
       </SafeAreaView>
     </>
   );

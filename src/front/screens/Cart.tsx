@@ -1,9 +1,9 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   CartProductCard,
   CupomBanner,
@@ -65,6 +65,78 @@ export function Cart() {
     };
   }, [cartItems, hasCoupon, couponDiscount]);
 
+  // Animações para o total
+  const totalScale = useRef(new Animated.Value(1)).current;
+  const totalOpacity = useRef(new Animated.Value(1)).current;
+  const totalTranslateY = useRef(new Animated.Value(0)).current;
+  const previousTotal = useRef(totals.total);
+
+  // Animar total quando muda
+  useEffect(() => {
+    if (previousTotal.current !== totals.total) {
+      const isIncreasing = totals.total > previousTotal.current;
+      
+      // Reset valores
+      totalScale.setValue(1);
+      totalOpacity.setValue(1);
+      totalTranslateY.setValue(0);
+      
+      // Animar
+      Animated.parallel([
+        Animated.sequence([
+          Animated.spring(totalScale, {
+            toValue: 1.1,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+          Animated.spring(totalScale, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(totalOpacity, {
+            toValue: 0.4,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(totalOpacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.spring(totalTranslateY, {
+            toValue: isIncreasing ? -6 : 6,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+          Animated.spring(totalTranslateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+        ]),
+      ]).start();
+      
+      previousTotal.current = totals.total;
+    }
+  }, [totals.total]);
+
+  const animatedTotalStyle = {
+    transform: [
+      { scale: totalScale },
+      { translateY: totalTranslateY },
+    ],
+    opacity: totalOpacity,
+  };
+
   // Atualizar quantidade de um item
   const handleQuantityChange = (id: string, newQuantity: number) => {
     updateQuantity(id, newQuantity);
@@ -98,9 +170,10 @@ export function Cart() {
         translucent={false}
       />
       <SafeAreaView 
-        style={styles.safeArea} 
+        style={[styles.safeArea, { backgroundColor: colors.white }]} 
         edges={['top']}
       >
+        <View style={{ backgroundColor: colors.gray[50], flex: 1 }}>
         {/* Header */}
         {loading ? (
           <View style={styles.skeletonHeader}>
@@ -167,6 +240,7 @@ export function Cart() {
                   quantity={item.quantity}
                   onQuantityChange={handleQuantityChange}
                   onRemove={handleRemoveItem}
+                  customizations={item.customizations}
                 />
               </View>
             ))}
@@ -248,9 +322,9 @@ export function Cart() {
             {/* Total */}
             <View style={styles.finalTotalRow}>
               <Text style={styles.finalTotalLabel}>Total</Text>
-              <Text style={styles.finalTotalValue}>
+              <Animated.Text style={[styles.finalTotalValue, animatedTotalStyle]}>
                 {formatCurrency(totals.total)}
-              </Text>
+              </Animated.Text>
             </View>
 
             {/* Checkout Button */}
@@ -263,6 +337,7 @@ export function Cart() {
             />
           </View>
         )}
+        </View>
       </SafeAreaView>
     </>
   );

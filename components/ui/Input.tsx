@@ -1,5 +1,5 @@
-import { View, Text, TextInput, StyleSheet, ViewStyle, TextInputProps } from 'react-native';
-import { Search, CheckCircle2, XCircle } from 'lucide-react-native';
+import { View, Text, TextInput, StyleSheet, ViewStyle, TextInputProps, TouchableOpacity } from 'react-native';
+import { Search, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react-native';
 import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
 import { useState } from 'react';
 
@@ -10,8 +10,11 @@ interface InputProps extends Omit<TextInputProps, 'style'> {
   status?: 'default' | 'error' | 'success';
   errorMessage?: string;
   successMessage?: string;
-  state?: 'Default' | 'Focus' | 'Disabled';
+  message?: string; // Mensagem geral abaixo do input (conforme Figma)
+  showMessage?: boolean; // Se deve mostrar a mensagem (conforme Figma)
+  state?: 'Default' | 'Focus' | 'Disabled' | 'Error' | 'Success'; // Estados conforme Figma
   showSearchIcon?: boolean;
+  showPasswordEye?: boolean; // Ícone de olho para mostrar/ocultar senha (conforme Figma: passwordEye)
   containerStyle?: ViewStyle;
   inputStyle?: ViewStyle;
 }
@@ -23,49 +26,98 @@ export function Input({
   status = 'default',
   errorMessage,
   successMessage,
+  message,
+  showMessage = false,
   state = 'Default',
   showSearchIcon = true,
+  showPasswordEye = false,
   containerStyle,
   inputStyle,
   editable,
+  secureTextEntry,
   ...textInputProps
 }: InputProps) {
   const [isFocused, setIsFocused] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   
-  // Determinar o estado real (se state for 'Focus' ou se o input estiver focado)
-  const actualState = state === 'Disabled' ? 'Disabled' : (state === 'Focus' || isFocused ? 'Focus' : 'Default');
+  // Determinar o estado real
+  // Se state for explícito (Focus, Disabled, Error, Success), usar ele
+  // Senão, determinar baseado em status e focus
+  let actualState = state;
+  if (state === 'Default') {
+    if (status === 'error') {
+      actualState = 'Error';
+    } else if (status === 'success') {
+      actualState = 'Success';
+    } else if (isFocused) {
+      actualState = 'Focus';
+    } else {
+      actualState = 'Default';
+    }
+  }
   
   // Se state for 'Disabled', forçar editable como false
   const isEditable = actualState === 'Disabled' ? false : (editable !== undefined ? editable : true);
+  
+  // Para password, usar o estado interno se showPasswordEye estiver ativo
+  const actualSecureTextEntry = showPasswordEye ? !isPasswordVisible : secureTextEntry;
 
-  // Determinar cor da borda baseado no status
+  // Cores conforme Figma
+  const errorColor = '#e68b1c'; // Warning color do Figma
+  const successColor = colors.green[700]; // #449200
+
+  // Determinar cor da borda e background baseado no estado
   const getBorderColor = () => {
     if (actualState === 'Disabled') return colors.disabled;
-    if (status === 'error') return colors.red[600];
-    if (status === 'success') return colors.green[700];
-    if (actualState === 'Focus') return colors.primary;
-    return colors.gray[500];
+    if (actualState === 'Error') return errorColor; // Error: borda warning
+    if (actualState === 'Success') return successColor; // Success: borda verde
+    if (actualState === 'Focus') return colors.primary; // #E61C61
+    return 'transparent'; // Default: sem borda visível
+  };
+
+  const getBackgroundColor = () => {
+    if (actualState === 'Disabled') return colors.disabled; // #c5c5c5
+    return colors.gray[50]; // #F9FAFB (todos os outros estados)
+  };
+
+  const getTextColor = () => {
+    if (actualState === 'Disabled') return colors.mutedForeground;
+    if (actualState === 'Error') return errorColor; // Error: texto warning
+    return colors.black; // Default, Focus, Success
+  };
+
+  const getMessageColor = () => {
+    if (actualState === 'Error') return errorColor; // Error: mensagem warning
+    if (actualState === 'Success') return successColor; // Success: mensagem verde
+    return colors.mutedForeground; // Default
   };
 
   const containerStyles = combineStyles(
     styles.container,
-    actualState === 'Focus' && status === 'default' && styles.containerFocus,
+    actualState === 'Focus' && styles.containerFocus,
     actualState === 'Disabled' && styles.containerDisabled,
-    status === 'error' && styles.containerError,
-    status === 'success' && styles.containerSuccess,
-    { borderColor: getBorderColor() },
+    actualState === 'Error' && styles.containerError,
+    actualState === 'Success' && styles.containerSuccess,
+    { 
+      borderColor: getBorderColor(),
+      backgroundColor: getBackgroundColor(),
+    },
     containerStyle
   );
 
   const inputStyles = combineStyles(
     styles.input,
-    actualState === 'Focus' && styles.inputFocus,
     actualState === 'Disabled' && styles.inputDisabled,
+    { color: getTextColor() },
     inputStyle
   );
 
-  const iconColor = actualState === 'Disabled' ? colors.disabled : colors.black;
-  const showStatusIcon = (status === 'error' || status === 'success') && !showSearchIcon;
+  const iconColor = actualState === 'Disabled' ? colors.disabled : (actualState === 'Error' ? errorColor : colors.black);
+  const showStatusIcon = (actualState === 'Error' || actualState === 'Success') && !showSearchIcon && !showPasswordEye;
+
+  // Determinar qual mensagem mostrar
+  const displayMessage = errorMessage || successMessage || message;
+  const shouldShowMessage = showMessage && displayMessage;
 
   return (
     <View style={styles.wrapper}>
@@ -88,6 +140,7 @@ export function Input({
           placeholder={placeholder}
           placeholderTextColor={colors.mutedForeground}
           editable={isEditable}
+          secureTextEntry={actualSecureTextEntry}
           onFocus={() => {
             if (state === 'Default') {
               setIsFocused(true);
@@ -102,21 +155,39 @@ export function Input({
           }}
           {...textInputProps}
         />
+        {showPasswordEye && (
+          <TouchableOpacity
+            onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+            style={styles.eyeIconContainer}
+            activeOpacity={0.7}
+          >
+            {isPasswordVisible ? (
+              <EyeOff size={24} color={iconColor} strokeWidth={2} />
+            ) : (
+              <Eye size={24} color={iconColor} strokeWidth={2} />
+            )}
+          </TouchableOpacity>
+        )}
         {showStatusIcon && (
           <View style={styles.statusIconContainer}>
-            {status === 'error' && (
-              <XCircle size={20} color={colors.red[600]} strokeWidth={2} />
+            {actualState === 'Error' && (
+              <XCircle size={20} color={errorColor} strokeWidth={2} />
             )}
-            {status === 'success' && (
-              <CheckCircle2 size={20} color={colors.green[700]} strokeWidth={2} />
+            {actualState === 'Success' && (
+              <CheckCircle2 size={20} color={successColor} strokeWidth={2} />
             )}
           </View>
         )}
       </View>
-      {errorMessage && status === 'error' && (
-        <Text style={styles.errorMessage}>{errorMessage}</Text>
+      {shouldShowMessage && (
+        <Text style={[styles.message, { color: getMessageColor() }]}>
+          {displayMessage}
+        </Text>
       )}
-      {successMessage && status === 'success' && (
+      {errorMessage && (actualState === 'Error' || status === 'error') && !showMessage && (
+        <Text style={[styles.errorMessage, { color: errorColor }]}>{errorMessage}</Text>
+      )}
+      {successMessage && (actualState === 'Success' || status === 'success') && !showMessage && (
         <Text style={styles.successMessage}>{successMessage}</Text>
       )}
     </View>
@@ -128,31 +199,32 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   labelContainer: {
-    marginBottom: spacing.xs, // 4px
+    marginBottom: spacing.sm, // 8px
   },
   label: {
     ...typography.sm,
     fontWeight: fontWeights.medium,
     color: colors.black,
+    lineHeight: 18,
   },
   required: {
     color: colors.red[600],
   },
   container: {
-    backgroundColor: colors.gray[500], // #F9FAFB
+    backgroundColor: colors.gray[50], // #F9FAFB
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: spacing.md, // 16px
-    paddingVertical: 12,
+    paddingHorizontal: 14, // 14px conforme Figma
+    paddingVertical: 0,
     borderRadius: borderRadius.md, // 8px
     width: '100%',
     borderWidth: 1,
-    borderColor: colors.gray[500], // Mesma cor do fundo para evitar jump no focus
-    minHeight: 52, // Altura mínima consistente
+    height: 52, // Altura fixa conforme Figma
+    justifyContent: 'center',
   },
   containerFocus: {
-    backgroundColor: colors.gray[500], // #F9FAFB
+    backgroundColor: colors.gray[50], // #F9FAFB
     borderColor: colors.primary, // #E61C61
   },
   containerDisabled: {
@@ -160,12 +232,18 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   containerError: {
-    borderColor: colors.red[600],
+    backgroundColor: colors.gray[50], // #F9FAFB (não muda no Error)
   },
   containerSuccess: {
-    borderColor: colors.green[700],
+    backgroundColor: colors.gray[50], // #F9FAFB
   },
   iconContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eyeIconContainer: {
     width: 24,
     height: 24,
     alignItems: 'center',
@@ -179,31 +257,33 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: typography.base.fontSize,
+    fontSize: 16,
     fontFamily: typography.base.fontFamily,
     fontWeight: fontWeights.medium,
     color: colors.black,
     padding: 0,
     margin: 0,
-    lineHeight: 20, // LineHeight menor para subir o placeholder
-    textAlignVertical: 'center', // Alinha o texto verticalmente
-    includeFontPadding: false, // Remove padding extra da fonte
-  },
-  inputFocus: {
-    color: colors.black,
+    lineHeight: 18, // Conforme Figma
+    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   inputDisabled: {
     color: colors.mutedForeground,
   },
+  message: {
+    fontSize: 12,
+    fontFamily: typography.base.fontFamily,
+    fontWeight: fontWeights.medium,
+    marginTop: spacing.sm, // 8px gap conforme Figma
+    lineHeight: 16,
+  },
   errorMessage: {
     ...typography.xs,
-    color: colors.red[600],
-    marginTop: spacing.xs, // 4px
+    marginTop: spacing.xs, // 4px (fallback quando não usa showMessage)
   },
   successMessage: {
     ...typography.xs,
     color: colors.green[700],
-    marginTop: spacing.xs, // 4px
+    marginTop: spacing.xs, // 4px (fallback quando não usa showMessage)
   },
 });
-

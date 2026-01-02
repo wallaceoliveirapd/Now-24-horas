@@ -423,6 +423,7 @@ export function ComponentShowcase() {
             <VariantGroup title="Variantes">
               <ExampleItem label="Offer">
                 <ProductCard 
+                  id="showcase-offer-1"
                   title="Nome do produto"
                   description="Descrição do produto"
                   type="Offer"
@@ -435,6 +436,7 @@ export function ComponentShowcase() {
               </ExampleItem>
               <ExampleItem label="Default">
                 <ProductCard 
+                  id="showcase-default-1"
                   title="Nome do produto"
                   description="Descrição do produto"
                   type="Default"

@@ -1,5 +1,17 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 
+export interface ProductCustomizationItem {
+  name: string; // Ex: "Bacon", "Cream cheese"
+  additionalPrice?: number; // Preço adicional em centavos (opcional)
+}
+
+export interface ProductCustomization {
+  label: string; // Ex: "Escolha o tamanho", "Ponto da carne", "Adicionais"
+  value?: string; // Ex: "Pequeno (150g)", "Ao ponto" - usado quando há apenas um valor simples
+  items?: ProductCustomizationItem[]; // Lista de itens quando há múltiplos itens (ex: adicionais)
+  additionalPrice?: number; // Preço adicional total em centavos (usado quando há apenas value simples)
+}
+
 export interface CartItem {
   id: string;
   title: string;
@@ -10,6 +22,7 @@ export interface CartItem {
   discountValue: number; // em centavos
   type: 'Offer' | 'Default';
   quantity: number;
+  customizations?: ProductCustomization[]; // Personalizações do produto
 }
 
 export interface AppliedCoupon {
@@ -48,6 +61,18 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       discountValue: 1200, // R$12,00
       type: 'Offer',
       quantity: 2,
+      customizations: [
+        { label: 'Escolha o tamanho', value: 'Pequeno (150g)' },
+        { label: 'Ponto da carne', value: 'Ao ponto' },
+        { 
+          label: 'Adicionais', 
+          items: [
+            { name: 'Bacon', additionalPrice: 500 }, // R$5,00
+            { name: 'Cream cheese', additionalPrice: 700 }, // R$7,00
+          ]
+        },
+        { label: 'Queijos adicionais', value: 'Cheddar', additionalPrice: 500 }, // R$5,00
+      ],
     },
     {
       id: '2',

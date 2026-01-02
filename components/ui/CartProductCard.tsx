@@ -1,7 +1,9 @@
-import { View, Text, StyleSheet, ViewStyle, Image, ImageSourcePropType, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, Image, ImageSourcePropType, TouchableOpacity, Animated } from 'react-native';
 import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
 import { Driver } from './Driver';
 import { Minus, Plus, Trash2 } from 'lucide-react-native';
+import { useEffect, useRef } from 'react';
+import { ProductCustomization } from '../../src/contexts/CartContext';
 
 interface CartProductCardProps {
   id: string;
@@ -16,6 +18,7 @@ interface CartProductCardProps {
   quantity: number;
   onQuantityChange: (id: string, newQuantity: number) => void;
   onRemove?: (id: string) => void;
+  customizations?: ProductCustomization[];
   style?: ViewStyle;
 }
 
@@ -40,12 +43,110 @@ export function CartProductCard({
   quantity,
   onQuantityChange,
   onRemove,
+  customizations = [],
   style
 }: CartProductCardProps) {
   const containerStyle = combineStyles(
     styles.container,
     style
   );
+  
+  // Animações
+  const quantityScale = useRef(new Animated.Value(1)).current;
+  const quantityOpacity = useRef(new Animated.Value(1)).current;
+  const plusButtonScale = useRef(new Animated.Value(1)).current;
+  const minusButtonScale = useRef(new Animated.Value(1)).current;
+  const previousQuantity = useRef(quantity);
+  
+  // Animar quando quantidade muda
+  useEffect(() => {
+    if (previousQuantity.current !== quantity) {
+      quantityScale.setValue(1);
+      quantityOpacity.setValue(1);
+      
+      Animated.parallel([
+        Animated.sequence([
+          Animated.spring(quantityScale, {
+            toValue: 1.2,
+            useNativeDriver: true,
+            tension: 300,
+            friction: 8,
+          }),
+          Animated.spring(quantityScale, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 10,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(quantityOpacity, {
+            toValue: 0.5,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(quantityOpacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start();
+      
+      previousQuantity.current = quantity;
+    }
+  }, [quantity]);
+  
+  const animatedQuantityStyle = {
+    transform: [{ scale: quantityScale }],
+    opacity: quantityOpacity,
+  };
+  
+  const animatedPlusButtonStyle = {
+    transform: [{ scale: plusButtonScale }],
+  };
+  
+  const animatedMinusButtonStyle = {
+    transform: [{ scale: minusButtonScale }],
+  };
+  
+  const handlePlusPress = () => {
+    plusButtonScale.setValue(1);
+    Animated.sequence([
+      Animated.spring(plusButtonScale, {
+        toValue: 0.9,
+        useNativeDriver: true,
+        tension: 300,
+        friction: 10,
+      }),
+      Animated.spring(plusButtonScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 300,
+        friction: 10,
+      }),
+    ]).start();
+    handleIncrease();
+  };
+  
+  const handleMinusPress = () => {
+    minusButtonScale.setValue(1);
+    Animated.sequence([
+      Animated.spring(minusButtonScale, {
+        toValue: 0.9,
+        useNativeDriver: true,
+        tension: 300,
+        friction: 10,
+      }),
+      Animated.spring(minusButtonScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 300,
+        friction: 10,
+      }),
+    ]).start();
+    handleDecrease();
+  };
 
   const handleDecrease = () => {
     if (quantity > 1) {
@@ -102,6 +203,44 @@ export function CartProductCard({
           >
             {title}
           </Text>
+          
+          {/* Customizations */}
+          {customizations && customizations.length > 0 && (
+            <View style={styles.customizationsContainer}>
+              {customizations.map((customization, index) => {
+                // Se tem items (múltiplos itens com preços individuais)
+                if (customization.items && customization.items.length > 0) {
+                  return (
+                    <Text key={index} style={styles.customizationText} numberOfLines={2}>
+                      {customization.label}:{' '}
+                      {customization.items.map((item, itemIndex, arr) => {
+                        const isLast = itemIndex === arr.length - 1;
+                        return (
+                          <Text key={itemIndex}>
+                            <Text style={styles.customizationValue}>{item.name}</Text>
+                            {item.additionalPrice && (
+                              <Text style={styles.additionalPrice}> +{formatCurrency(item.additionalPrice)}</Text>
+                            )}
+                            {!isLast && ', '}
+                          </Text>
+                        );
+                      })}
+                    </Text>
+                  );
+                }
+                
+                // Caso simples: apenas um valor
+                return (
+                  <Text key={index} style={styles.customizationText} numberOfLines={1}>
+                    {customization.label}: <Text style={styles.customizationValue}>{customization.value}</Text>
+                    {customization.additionalPrice && (
+                      <Text style={styles.additionalPrice}> +{formatCurrency(customization.additionalPrice)}</Text>
+                    )}
+                  </Text>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {/* Price Container */}
@@ -145,34 +284,38 @@ export function CartProductCard({
               />
             </TouchableOpacity>
           ) : (
+            <Animated.View style={animatedMinusButtonStyle}>
+              <TouchableOpacity 
+                style={styles.quantityButton}
+                onPress={handleMinusPress}
+                activeOpacity={0.7}
+              >
+                <Minus 
+                  size={14} 
+                  color={colors.primary} 
+                  strokeWidth={2.5} 
+                />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+          
+          <Animated.View style={[styles.quantityDisplay, animatedQuantityStyle]}>
+            <Text style={styles.quantityText}>{quantity}</Text>
+          </Animated.View>
+          
+          <Animated.View style={animatedPlusButtonStyle}>
             <TouchableOpacity 
               style={styles.quantityButton}
-              onPress={handleDecrease}
+              onPress={handlePlusPress}
               activeOpacity={0.7}
             >
-              <Minus 
+              <Plus 
                 size={14} 
                 color={colors.primary} 
                 strokeWidth={2.5} 
               />
             </TouchableOpacity>
-          )}
-          
-          <View style={styles.quantityDisplay}>
-            <Text style={styles.quantityText}>{quantity}</Text>
-          </View>
-          
-          <TouchableOpacity 
-            style={styles.quantityButton}
-            onPress={handleIncrease}
-            activeOpacity={0.7}
-          >
-            <Plus 
-              size={14} 
-              color={colors.primary} 
-              strokeWidth={2.5} 
-            />
-          </TouchableOpacity>
+          </Animated.View>
         </View>
       </View>
     </View>
@@ -227,12 +370,32 @@ const styles = StyleSheet.create({
   nameContainer: {
     width: '100%',
     flexDirection: 'column',
+    gap: 6,
   },
   title: {
     ...typography.sm,
     fontWeight: fontWeights.medium,
     color: colors.black,
     lineHeight: 16.8, // 14px * 1.2
+  },
+  customizationsContainer: {
+    width: '100%',
+    flexDirection: 'column',
+    gap: 4,
+  },
+  customizationText: {
+    fontSize: 10,
+    lineHeight: 12, // 10px * 1.2
+    fontFamily: typography.sm.fontFamily,
+    fontWeight: fontWeights.normal,
+    color: colors.mutedForeground,
+  },
+  customizationValue: {
+    fontWeight: fontWeights.medium,
+  },
+  additionalPrice: {
+    fontWeight: fontWeights.medium,
+    color: colors.primary,
   },
   priceContainer: {
     width: '100%',

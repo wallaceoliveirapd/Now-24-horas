@@ -55,8 +55,10 @@ export function OrderConfirmation() {
         translucent={false}
       />
       <SafeAreaView 
-        style={styles.safeArea} 
+        style={[styles.safeArea, { backgroundColor: colors.white }]} 
         edges={['top', 'bottom']}
+      >
+        <View style={{ backgroundColor: colors.gray[50], flex: 1 }}>
       >
         <ScrollView
           style={styles.scrollView}
@@ -159,6 +161,7 @@ export function OrderConfirmation() {
             Você receberá atualizações sobre o seu pedido em tempo real.
           </Text>
         </ScrollView>
+        </View>
       </SafeAreaView>
     </>
   );

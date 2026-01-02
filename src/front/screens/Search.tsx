@@ -421,6 +421,7 @@ export function Search() {
                 onChangeText={setSearchQuery}
                 returnKeyType="search"
                 autoFocus={false}
+                multiline={false}
               />
             </View>
 
@@ -544,6 +545,7 @@ export function Search() {
               {products.map((product) => (
                 <View key={product.id} style={styles.productCardWrapper}>
                   <ProductCard
+                    id={product.id}
                     title={product.title}
                     description={product.description}
                     showDriver={product.showDriver}
@@ -696,16 +698,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray[500], // muted
     borderRadius: borderRadius.md,
     paddingHorizontal: 14,
-    paddingVertical: spacing.sm + 4, // 12px
-    height: 40,
+    paddingVertical: 10,
+    height: 44,
   },
   searchInput: {
     flex: 1,
-    ...typography.base,
+    fontSize: typography.base.fontSize,
+    fontFamily: typography.base.fontFamily,
     fontWeight: fontWeights.medium,
     color: colors.black,
     padding: 0,
     margin: 0,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+    lineHeight: typography.base.lineHeight,
+    minHeight: 24,
   },
   filterButton: {
     width: 41,
@@ -742,10 +749,11 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     width: '100%',
+    rowGap: 12, // Gap vertical de 12px entre linhas
   },
   productCardWrapper: {
     width: '48%', // 2 colunas com gap
-    marginBottom: spacing.md,
+    alignSelf: 'flex-start', // Permite que cards de alturas diferentes se alinhem no topo
   },
   productCard: {
     width: '100%',

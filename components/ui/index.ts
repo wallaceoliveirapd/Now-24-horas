@@ -33,4 +33,12 @@ export { OrderStepsIcon } from './OrderStepsIcon';
 export type { OrderStep, OrderStepState } from './OrderStepsIcon';
 export { OrderCard } from './OrderCard';
 export type { OrderStatus, OrderItem } from './OrderCard';
+export { ProfileHeader } from './ProfileHeader';
+export { ProfileStatCard } from './ProfileStatCard';
+export { ProfileStats } from './ProfileStats';
+export { ProfileMenuItem } from './ProfileMenuItem';
+export { ProfileMenu } from './ProfileMenu';
+export { ProfileFooter } from './ProfileFooter';
+export { Switch } from './Switch';
+export { Accordion } from './Accordion';
 

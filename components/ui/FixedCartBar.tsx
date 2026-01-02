@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet, ViewStyle, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, TouchableOpacity, Animated } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
 import { ShoppingCart } from 'lucide-react-native';
+import { useEffect, useRef } from 'react';
 
 interface FixedCartBarProps {
   totalItems?: number;
@@ -30,6 +31,115 @@ export function FixedCartBar({
   );
 
   const showBadge = totalItems > 0;
+  
+  // Animações para o preço
+  const priceScale = useRef(new Animated.Value(1)).current;
+  const priceOpacity = useRef(new Animated.Value(1)).current;
+  const priceTranslateY = useRef(new Animated.Value(0)).current;
+  const previousPrice = useRef(totalPrice);
+  
+  // Animações para o badge
+  const badgeScale = useRef(new Animated.Value(1)).current;
+  const previousItems = useRef(totalItems);
+
+  // Animar preço quando muda
+  useEffect(() => {
+    if (previousPrice.current !== totalPrice) {
+      const isIncreasing = totalPrice > previousPrice.current;
+      
+      // Reset valores
+      priceScale.setValue(1);
+      priceOpacity.setValue(1);
+      priceTranslateY.setValue(0);
+      
+      // Animação de escala e movimento
+      Animated.parallel([
+        Animated.sequence([
+          Animated.spring(priceScale, {
+            toValue: 1.15,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+          Animated.spring(priceScale, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(priceOpacity, {
+            toValue: 0.3,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(priceOpacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.spring(priceTranslateY, {
+            toValue: isIncreasing ? -8 : 8,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+          Animated.spring(priceTranslateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 200,
+            friction: 12,
+          }),
+        ]),
+      ]).start();
+      
+      previousPrice.current = totalPrice;
+    }
+  }, [totalPrice]);
+
+  // Animar badge quando quantidade muda
+  useEffect(() => {
+    if (previousItems.current !== totalItems && totalItems > 0) {
+      badgeScale.setValue(1);
+      
+      Animated.sequence([
+        Animated.sequence([
+          Animated.spring(badgeScale, {
+            toValue: 1.3,
+            useNativeDriver: true,
+            tension: 300,
+            friction: 10,
+          }),
+          Animated.spring(badgeScale, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 300,
+            friction: 10,
+          }),
+        ]),
+      ]).start();
+      
+      previousItems.current = totalItems;
+    }
+  }, [totalItems]);
+
+  const animatedPriceStyle = {
+    transform: [
+      { scale: priceScale },
+      { translateY: priceTranslateY },
+    ],
+    opacity: priceOpacity,
+  };
+
+  const animatedBadgeStyle = {
+    transform: [
+      { scale: badgeScale },
+    ],
+    // Rotação não suportada com useNativeDriver, usando apenas scale
+  };
 
   return (
     <BlurView
@@ -48,11 +158,11 @@ export function FixedCartBar({
           <View style={styles.iconContainer}>
             <ShoppingCart size={24} color={colors.black} strokeWidth={2} />
             {showBadge && (
-              <View style={styles.badgeContainer}>
+              <Animated.View style={[styles.badgeContainer, animatedBadgeStyle]}>
                 <Text style={styles.badgeText} numberOfLines={1}>
                   +{totalItems}
                 </Text>
-              </View>
+              </Animated.View>
             )}
           </View>
 
@@ -61,9 +171,9 @@ export function FixedCartBar({
             <Text style={styles.totalLabel} numberOfLines={1}>
               Total
             </Text>
-            <Text style={styles.totalValue} numberOfLines={1}>
+            <Animated.Text style={[styles.totalValue, animatedPriceStyle]} numberOfLines={1}>
               {formatCurrency(totalPrice)}
-            </Text>
+            </Animated.Text>
           </View>
         </View>
 

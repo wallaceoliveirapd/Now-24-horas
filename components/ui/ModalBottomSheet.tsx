@@ -325,8 +325,6 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     padding: spacing.lg, // 20px
     backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
   },
   actionButton: {
     width: '100%',
