@@ -1,0 +1,63 @@
+# Now 24 Horas - App de Delivery
+
+App de delivery desenvolvido com React Native, Expo e TailwindCSS (NativeWind).
+
+## 🚀 Tecnologias
+
+- **React Native** - Framework para desenvolvimento mobile
+- **Expo** - Plataforma para desenvolvimento React Native
+- **TypeScript** - Tipagem estática
+- **NativeWind** - TailwindCSS para React Native
+- **React Navigation** - Navegação entre telas
+
+## 📦 Instalação
+
+As dependências já estão instaladas. Para iniciar o projeto:
+
+```bash
+npm start
+```
+
+## 🏗️ Estrutura do Projeto
+
+```
+Now-24-horas/
+├── components/              # Componentes reutilizáveis
+│   ├── ui/                 # Componentes de UI (Button, Input, etc.)
+│   ├── docs/               # Componentes de documentação (Showcase, PropsTable, etc.)
+│   └── index.ts            # Exportações centralizadas
+├── src/
+│   ├── front/              # Código do frontend
+│   │   ├── screens/        # Telas da aplicação
+│   │   │   ├── Home.tsx
+│   │   │   ├── ComponentShowcase.tsx
+│   │   │   └── index.ts
+│   │   └── navigation/    # Configuração de navegação
+│   │       └── AppNavigator.tsx
+│   ├── back/               # Código do backend (quando necessário)
+│   │   ├── services/       # Lógica de negócio
+│   │   ├── repositories/   # Acesso a dados
+│   │   ├── models/         # Modelos de dados
+│   │   └── utils/          # Utilitários do backend
+│   ├── hooks/              # Custom hooks
+│   ├── lib/                # Utilitários e helpers compartilhados
+│   └── types/               # Definições de tipos TypeScript
+├── App.tsx                 # Componente principal
+├── global.css              # Estilos globais do Tailwind
+└── tailwind.config.js      # Configuração do TailwindCSS
+```
+
+## 🎨 Componentes
+
+A biblioteca de componentes está organizada em:
+- **`components/ui/`** - Componentes de interface reutilizáveis
+- **`components/docs/`** - Componentes auxiliares para documentação
+
+Acesse a página de showcase de componentes através da home do app para ver todos os componentes disponíveis, suas variações e exemplos de uso.
+
+## 📱 Executar
+
+- **iOS**: `npm run ios`
+- **Android**: `npm run android`
+- **Web**: `npm run web`
+
