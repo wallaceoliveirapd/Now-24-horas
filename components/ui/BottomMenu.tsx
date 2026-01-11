@@ -42,16 +42,27 @@ export function BottomMenu({
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: colors.white,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingTop: spacing.md + 19, // 16px + 19px para acomodar o transform
+    justifyContent: 'space-around',
+    paddingTop: spacing.md, // 16px
     paddingBottom: spacing.xl, // 32px
-    paddingHorizontal: spacing.lg, // 24px
-    width: '100%',
+    paddingHorizontal: 18, // 18px
+    shadowColor: colors.black,
+    shadowOffset: {
+      width: 0,
+      height: -4,
+    },
+    shadowOpacity: 0.04,
+    shadowRadius: 24,
+    elevation: 8,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   itemWrapper: {
     flex: 1,
@@ -59,4 +70,3 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
-

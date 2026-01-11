@@ -16,6 +16,8 @@ interface ModalBottomSheetProps {
   children?: ReactNode;
   primaryButtonLabel?: string;
   primaryButtonOnPress?: () => void;
+  primaryButtonDisabled?: boolean;
+  primaryButtonLoading?: boolean;
   secondaryButtonLabel?: string;
   secondaryButtonOnPress?: () => void;
   showPrimaryButton?: boolean;
@@ -31,6 +33,8 @@ export function ModalBottomSheet({
   children,
   primaryButtonLabel = 'Finalizar pedido',
   primaryButtonOnPress,
+  primaryButtonDisabled = false,
+  primaryButtonLoading = false,
   secondaryButtonLabel = 'Finalizar pedido',
   secondaryButtonOnPress,
   showPrimaryButton = true,
@@ -208,6 +212,8 @@ export function ModalBottomSheet({
                       variant="primary"
                       size="lg"
                       onPress={primaryButtonOnPress}
+                      disabled={primaryButtonDisabled}
+                      loading={primaryButtonLoading}
                       style={styles.actionButton}
                     />
                   )}

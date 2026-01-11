@@ -1,6 +1,5 @@
-import { View, Text, StyleSheet, ViewStyle, Image, ImageSourcePropType } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, Image, ImageSourcePropType, TouchableOpacity } from 'react-native';
 import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
-import { Driver } from './Driver';
 
 interface CategoryCardProps {
   label?: string;
@@ -8,6 +7,7 @@ interface CategoryCardProps {
   discountType?: 'currency' | 'percentage';
   type?: 'Default' | 'Discount';
   iconSource?: ImageSourcePropType;
+  onPress?: () => void;
   style?: ViewStyle;
 }
 
@@ -17,6 +17,7 @@ export function CategoryCard({
   discountType = 'currency',
   type = 'Default',
   iconSource,
+  onPress,
   style
 }: CategoryCardProps) {
   const containerStyle = combineStyles(
@@ -24,14 +25,10 @@ export function CategoryCard({
     style
   );
 
-  const iconContainerStyle = combineStyles(
-    styles.iconContainer,
-    type === 'Default' ? styles.iconContainerDefault : styles.iconContainerDiscount
-  );
-
-  return (
+  const content = (
     <View style={containerStyle}>
-      <View style={iconContainerStyle}>
+      {/* Icon Container */}
+      <View style={styles.iconContainer}>
         {iconSource ? (
           <Image 
             source={iconSource} 
@@ -41,77 +38,71 @@ export function CategoryCard({
         ) : (
           <View style={styles.iconPlaceholder} />
         )}
-        
-        {type === 'Discount' && (
-          <View style={styles.discountBadge}>
-            <Driver 
-              label={
-                discountType === 'currency' 
-                  ? `Até R$${discountValue} off`
-                  : `Até ${discountValue}% off`
-              } 
-              type="Secondary" 
-            />
-          </View>
-        )}
       </View>
       
+      {/* Label */}
       <Text 
         style={styles.label} 
-        numberOfLines={2}
+        numberOfLines={1}
         ellipsizeMode="tail"
       >
         {label}
       </Text>
     </View>
   );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        {content}
+      </TouchableOpacity>
+    );
+  }
+
+  return content;
 }
 
 const styles = StyleSheet.create({
   container: {
-    width: '100%',
+    width: 86,
+    height: 86,
+    backgroundColor: colors.gray[100], // #F9FAFB
+    borderRadius: borderRadius.xl, // 16px
+    padding: spacing.sm + 4, // 12px
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: spacing.sm + 2, // 10px
+    overflow: 'hidden',
   },
   iconContainer: {
+    flex: 1,
     width: '100%',
-    height: 63,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.md, // 8px
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-  },
-  iconContainerDefault: {
-    backgroundColor: colors.gray[500],
-  },
-  iconContainerDiscount: {
-    backgroundColor: colors.secondaryLight,
+    minHeight: 0,
   },
   icon: {
-    width: 50,
-    height: 50,
+    width: '100%',
+    height: '100%',
     aspectRatio: 1, // 1:1 aspect ratio
   },
   iconPlaceholder: {
-    width: 50,
-    height: 50,
-    aspectRatio: 1, // 1:1 aspect ratio
-    backgroundColor: colors.gray[300],
-    borderRadius: borderRadius.sm,
-  },
-  discountBadge: {
-    position: 'absolute',
-    top: -7.5,
-    alignSelf: 'center',
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.gray[100],
+    borderRadius: borderRadius.md,
   },
   label: {
-    ...typography.sm,
+    fontSize: 12,
+    lineHeight: 14.4, // 12px * 1.2
     fontWeight: fontWeights.medium,
-    lineHeight: 16,
-    color: colors.black,
+    color: colors.mutedForeground,
     textAlign: 'center',
     width: '100%',
   },
 });
-

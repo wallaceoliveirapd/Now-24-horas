@@ -1,9 +1,9 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Platform, Dimensions, RefreshControl, Animated } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   PageTitle,
   Chip,
@@ -12,11 +12,17 @@ import {
   SkeletonLoader,
   ModalBottomSheet,
   Badge,
-  Skeleton
+  Skeleton,
+  EmptyState,
+  FixedCartBar
 } from '../../../components/ui';
 import { colors, spacing, borderRadius, typography, fontWeights } from '../../lib/styles';
 import { ChevronLeft, Search as SearchIcon, Settings2 } from 'lucide-react-native';
 import { useCart } from '../../contexts/CartContext';
+import { calculateCouponDiscount } from '../../lib/couponUtils';
+import { useSearchData, SearchFilters } from '../hooks/useSearchData';
+import { Product } from '../../services/product.service';
+import { Category } from '../../services/category.service';
 
 // Importar imagens das categorias
 const categoryImages = {
@@ -35,333 +41,315 @@ type RootStackParamList = {
   ComponentShowcase: undefined;
   Cart: undefined;
   Cupons: undefined;
-  Search: undefined;
+  Search: {
+    categoryId?: string;
+    focusInput?: boolean;
+  };
+  ProductDetails: {
+    productId: string;
+  };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+type SearchRouteProp = RouteProp<RootStackParamList, 'Search'>;
 
-interface Category {
+interface CategoryChip {
   id: string;
   label: string;
   iconSource?: any;
 }
 
-interface Product {
-  id: string;
-  title: string;
-  description: string;
-  category: string;
-  showDriver: boolean;
-  driverLabel?: string;
-  basePrice?: string;
-  finalPrice: string;
-  discountValue?: string;
-  type: 'Offer' | 'Default';
-}
-
 export function Search() {
   const navigation = useNavigation<NavigationProp>();
-  const { addItem } = useCart();
+  const route = useRoute<SearchRouteProp>();
+  const { addItem, items: cartItems, totalItems, appliedCoupon } = useCart();
+  const insets = useSafeAreaInsets();
+  const searchInputRef = useRef<TextInput>(null);
+  const chipsScrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('todos');
-  const [loading, setLoading] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [showCartBar, setShowCartBar] = useState(false);
+  const cartBarOpacity = useRef(new Animated.Value(0)).current;
+  const cartBarTranslateY = useRef(new Animated.Value(20)).current;
   // Estados temporários no modal
   const [tempSortBy, setTempSortBy] = useState<string>('Relevância');
   const [tempPriceRange, setTempPriceRange] = useState<string>('Todos');
   // Estados aplicados (refletem na tela)
   const [appliedSortBy, setAppliedSortBy] = useState<string | null>(null);
   const [appliedPriceRange, setAppliedPriceRange] = useState<string | null>(null);
+  // Estado para rastrear quando está mudando de categoria (para mostrar skeleton)
+  const [isChangingCategory, setIsChangingCategory] = useState(false);
 
-  const categories: Category[] = [
-    { id: 'todos', label: 'Todos', iconSource: categoryImages.todos },
-    { id: 'bebidas', label: 'Bebidas', iconSource: categoryImages.bebida },
-    { id: 'vinhos', label: 'Vinhos', iconSource: categoryImages.vinho },
-    { id: 'carnes', label: 'Carnes', iconSource: categoryImages.carne },
-    { id: 'lanches', label: 'Lanches', iconSource: categoryImages.lanche },
-    { id: 'mercearia', label: 'Mercearia', iconSource: categoryImages.mercearia },
-    { id: 'limpeza', label: 'Limpeza', iconSource: categoryImages.limpeza },
-    { id: 'frios', label: 'Frios', iconSource: categoryImages.frios },
-  ];
+  // Hook de busca
+  const {
+    products: backendProducts,
+    categories: backendCategories,
+    loading,
+    error,
+    refreshing,
+    hasMore,
+    totalResults,
+    search: performSearch,
+    loadMore,
+    refresh,
+  } = useSearchData();
 
-  // Produtos de exemplo por categoria
-  const allProducts = [
-    // Bebidas
-    {
-      id: '1',
-      title: 'Coca-Cola 2L',
-      description: 'Refrigerante de cola',
-      category: 'bebidas',
-      showDriver: true,
-      driverLabel: 'Promo',
-      basePrice: 'R$10,00',
-      finalPrice: 'R$8,99',
-      discountValue: 'R$1,01',
-      type: 'Offer' as const,
-    },
-    {
-      id: '2',
-      title: 'Água Mineral sem Gás',
-      description: 'Garrafa 1.5L',
-      category: 'bebidas',
-      showDriver: false,
-      finalPrice: 'R$3,00',
-      type: 'Default' as const,
-    },
-    {
-      id: '3',
-      title: 'Cerveja Heineken Long Neck',
-      description: 'Pack com 6 unidades',
-      category: 'bebidas',
-      showDriver: true,
-      driverLabel: 'Oferta',
-      basePrice: 'R$30,00',
-      finalPrice: 'R$27,00',
-      discountValue: 'R$3,00',
-      type: 'Offer' as const,
-    },
-    // Vinhos
-    {
-      id: '4',
-      title: 'Vinho Tinto Suave',
-      description: 'Garrafa 750ml',
-      category: 'vinhos',
-      showDriver: false,
-      finalPrice: 'R$25,00',
-      type: 'Default' as const,
-    },
-    {
-      id: '5',
-      title: 'Vinho Branco Seco',
-      description: 'Garrafa 750ml',
-      category: 'vinhos',
-      showDriver: true,
-      driverLabel: 'Novo',
-      basePrice: 'R$35,00',
-      finalPrice: 'R$29,90',
-      discountValue: 'R$5,10',
-      type: 'Offer' as const,
-    },
-    {
-      id: '6',
-      title: 'Espumante Brut',
-      description: 'Garrafa 750ml',
-      category: 'vinhos',
-      showDriver: false,
-      finalPrice: 'R$45,00',
-      type: 'Default' as const,
-    },
-    // Carnes
-    {
-      id: '7',
-      title: 'Picanha Fatiada',
-      description: '500g, fresca',
-      category: 'carnes',
-      showDriver: true,
-      driverLabel: 'Novo',
-      basePrice: 'R$45,00',
-      finalPrice: 'R$39,90',
-      discountValue: 'R$5,10',
-      type: 'Offer' as const,
-    },
-    {
-      id: '8',
-      title: 'Alcatra Premium',
-      description: '1kg, embalado a vácuo',
-      category: 'carnes',
-      showDriver: false,
-      finalPrice: 'R$52,00',
-      type: 'Default' as const,
-    },
-    {
-      id: '9',
-      title: 'Frango Inteiro',
-      description: '1.5kg, congelado',
-      category: 'carnes',
-      showDriver: true,
-      driverLabel: 'Promo',
-      basePrice: 'R$18,00',
-      finalPrice: 'R$15,99',
-      discountValue: 'R$2,01',
-      type: 'Offer' as const,
-    },
-    // Lanches
-    {
-      id: '10',
-      title: 'Salgadinho Elma Chips',
-      description: 'Pacote 100g',
-      category: 'lanches',
-      showDriver: false,
-      finalPrice: 'R$5,50',
-      type: 'Default' as const,
-    },
-    {
-      id: '11',
-      title: 'Biscoito Recheado',
-      description: 'Pacote 200g',
-      category: 'lanches',
-      showDriver: true,
-      driverLabel: 'Desconto',
-      basePrice: 'R$7,00',
-      finalPrice: 'R$5,99',
-      discountValue: 'R$1,01',
-      type: 'Offer' as const,
-    },
-    {
-      id: '12',
-      title: 'Amendoim Torrado',
-      description: 'Pacote 300g',
-      category: 'lanches',
-      showDriver: false,
-      finalPrice: 'R$8,50',
-      type: 'Default' as const,
-    },
-    // Mercearia
-    {
-      id: '13',
-      title: 'Chocolate Lacta Ao Leite',
-      description: 'Barra 90g',
-      category: 'mercearia',
-      showDriver: true,
-      driverLabel: 'Desconto',
-      basePrice: 'R$7,00',
-      finalPrice: 'R$5,99',
-      discountValue: 'R$1,01',
-      type: 'Offer' as const,
-    },
-    {
-      id: '14',
-      title: 'Açúcar Cristal',
-      description: 'Pacote 1kg',
-      category: 'mercearia',
-      showDriver: false,
-      finalPrice: 'R$4,50',
-      type: 'Default' as const,
-    },
-    {
-      id: '15',
-      title: 'Óleo de Soja',
-      description: 'Garrafa 900ml',
-      category: 'mercearia',
-      showDriver: false,
-      finalPrice: 'R$6,99',
-      type: 'Default' as const,
-    },
-    // Limpeza
-    {
-      id: '16',
-      title: 'Detergente Líquido',
-      description: 'Garrafa 500ml',
-      category: 'limpeza',
-      showDriver: false,
-      finalPrice: 'R$3,99',
-      type: 'Default' as const,
-    },
-    {
-      id: '17',
-      title: 'Sabão em Pó',
-      description: 'Pacote 1kg',
-      category: 'limpeza',
-      showDriver: true,
-      driverLabel: 'Oferta',
-      basePrice: 'R$12,00',
-      finalPrice: 'R$9,99',
-      discountValue: 'R$2,01',
-      type: 'Offer' as const,
-    },
-    {
-      id: '18',
-      title: 'Água Sanitária',
-      description: 'Garrafa 1L',
-      category: 'limpeza',
-      showDriver: false,
-      finalPrice: 'R$4,50',
-      type: 'Default' as const,
-    },
-    // Frios
-    {
-      id: '19',
-      title: 'Queijo Minas Frescal',
-      description: 'Peça 500g',
-      category: 'frios',
-      showDriver: false,
-      finalPrice: 'R$18,00',
-      type: 'Default' as const,
-    },
-    {
-      id: '20',
-      title: 'Presunto Fatiado',
-      description: 'Pacote 200g',
-      category: 'frios',
-      showDriver: true,
-      driverLabel: 'Promo',
-      basePrice: 'R$12,00',
-      finalPrice: 'R$9,99',
-      discountValue: 'R$2,01',
-      type: 'Offer' as const,
-    },
-    {
-      id: '21',
-      title: 'Mussarela Fatiada',
-      description: 'Pacote 200g',
-      category: 'frios',
-      showDriver: false,
-      finalPrice: 'R$11,50',
-      type: 'Default' as const,
-    },
-  ];
+  // Converter categorias do backend para formato de chips
+  const categoryChips: CategoryChip[] = useMemo(() => {
+    // Adicionar "Todos" como primeiro chip
+    const todosChip: CategoryChip = {
+      id: 'todos',
+      label: 'Todos',
+      iconSource: categoryImages.todos,
+    };
 
-  // Filtrar e ordenar produtos
-  const products = useMemo(() => {
-    let filtered = selectedCategory === 'todos' 
-      ? allProducts 
-      : allProducts.filter(product => product.category === selectedCategory);
-
-    // Filtrar por faixa de preço
-    if (appliedPriceRange && appliedPriceRange !== 'Todos') {
-      filtered = filtered.filter(product => {
-        const price = parseFloat(product.finalPrice.replace('R$', '').replace(',', '.'));
-        switch (appliedPriceRange) {
-          case 'Até R$ 10':
-            return price <= 10;
-          case 'R$ 10-25':
-            return price > 10 && price <= 25;
-          case 'R$ 25-50':
-            return price > 25 && price <= 50;
-          case 'Acima de R$ 50':
-            return price > 50;
-          default:
-            return true;
-        }
-      });
+    // Se não há categorias do backend, retornar apenas "Todos"
+    if (backendCategories.length === 0) {
+      if (__DEV__) {
+        console.warn('⚠️ Search: Nenhuma categoria do backend, usando apenas "Todos"');
+      }
+      return [todosChip];
     }
 
-    // Ordenar produtos
-    if (appliedSortBy && appliedSortBy !== 'Relevância') {
-      filtered = [...filtered].sort((a, b) => {
-        const priceA = parseFloat(a.finalPrice.replace('R$', '').replace(',', '.'));
-        const priceB = parseFloat(b.finalPrice.replace('R$', '').replace(',', '.'));
+    // Separar categorias principais e outras (já devem vir ordenadas do hook)
+    // Mas vamos garantir a ordem: principais primeiro (já ordenadas por ordem), depois outras
+    const principalCategories = backendCategories.filter(cat => cat.principal === true);
+    const otherCategories = backendCategories.filter(cat => cat.principal !== true);
+
+    // Converter categorias do backend (principais primeiro, depois outras)
+    const allCategoriesToConvert = [...principalCategories, ...otherCategories];
+    const convertedCategories = allCategoriesToConvert.map((category) => {
+      // Mapear ícone da categoria
+      const getCategoryImage = () => {
+        if (category.icone) {
+          return { uri: category.icone };
+        }
+        // Fallback para imagens locais baseado no slug
+        const slugToImage: Record<string, any> = {
+          bebidas: categoryImages.bebida,
+          vinhos: categoryImages.vinho,
+          carnes: categoryImages.carne,
+          lanches: categoryImages.lanche,
+          mercearia: categoryImages.mercearia,
+          limpeza: categoryImages.limpeza,
+          frios: categoryImages.frios,
+        };
+        return slugToImage[category.slug] || categoryImages.todos;
+      };
+
+      return {
+        id: category.id,
+        label: category.nome,
+        iconSource: getCategoryImage(),
+      };
+    });
+
+    return [todosChip, ...convertedCategories];
+  }, [backendCategories]);
+
+  // Converter produtos do backend para formato do ProductCard
+  const convertProductToCard = useCallback((product: Product) => {
+    // Garantir que os preços sejam números válidos
+    // O backend retorna preços em centavos como number
+    let preco = 0;
+    if (product.preco !== undefined && product.preco !== null) {
+      const precoNum = typeof product.preco === 'string' ? parseFloat(product.preco) : product.preco;
+      if (!isNaN(precoNum) && precoNum > 0) {
+        preco = precoNum;
+      }
+    }
+    
+    let precoPromocional: number | undefined = undefined;
+    if (product.precoPromocional !== undefined && product.precoPromocional !== null) {
+      const precoPromoNum = typeof product.precoPromocional === 'string' 
+        ? parseFloat(product.precoPromocional) 
+        : product.precoPromocional;
+      if (!isNaN(precoPromoNum) && precoPromoNum > 0) {
+        precoPromocional = precoPromoNum;
+      }
+    }
+    
+    const hasDiscount = precoPromocional && precoPromocional < preco && preco > 0;
+    const discountPercent = hasDiscount && preco > 0
+      ? Math.round(((preco - precoPromocional!) / preco) * 100)
+      : undefined;
+
+    // Calcular preço final (usar promocional se houver, senão usar preço normal)
+    const precoFinal = precoPromocional && precoPromocional < preco ? precoPromocional : preco;
+    
+    // Formatar preços (garantir que não seja NaN)
+    const formatPrice = (price: number): string => {
+      if (!price || isNaN(price) || price <= 0) return 'R$ 0,00';
+      return `R$ ${(price / 100).toFixed(2).replace('.', ',')}`;
+    };
+
+    return {
+      id: product.id,
+      title: product.nome || 'Produto sem nome',
+      description: product.descricao || '',
+      showDriver: product.maisPopular || false,
+      driverLabel: product.maisPopular ? 'Popular' : undefined,
+      basePrice: hasDiscount ? formatPrice(preco) : undefined,
+      finalPrice: formatPrice(precoFinal),
+      discountValue: discountPercent ? `${discountPercent}%` : undefined,
+      type: (product.emOferta ? 'Offer' : 'Default') as 'Offer' | 'Default',
+      imageSource: product.imagemUrl ? { uri: product.imagemUrl } : undefined,
+    };
+  }, []);
+
+  // Aplicar parâmetros da navegação
+  useEffect(() => {
+    const { categoryId, focusInput } = route.params || {};
+    
+    if (categoryId) {
+      setSelectedCategory(categoryId);
+      // A busca será feita automaticamente pelo useEffect que monitora selectedCategory
+    }
+    
+    if (focusInput) {
+      // Focar no input após um pequeno delay para garantir que a tela está renderizada
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 300);
+    }
+  }, [route.params]);
+
+  // Estado para armazenar posições acumuladas dos chips
+  const [chipPositions, setChipPositions] = useState<{ [key: string]: number }>({});
+
+  // Scroll automático para o chip selecionado
+  useEffect(() => {
+    if (!chipsScrollViewRef.current || !selectedCategory) return;
+
+    const position = chipPositions[selectedCategory];
+    if (position !== undefined) {
+      const screenWidth = Dimensions.get('window').width;
+      const paddingLeft = spacing.md; // 16px
+      // Centralizar o chip na tela
+      const scrollPosition = position - (screenWidth / 2) + 50; // +50 para compensação visual
+      
+      setTimeout(() => {
+        chipsScrollViewRef.current?.scrollTo({
+          x: Math.max(0, scrollPosition),
+          animated: true,
+        });
+      }, 100);
+    } else {
+      // Fallback: usar estimativa se posição não estiver disponível
+      const categoryIndex = categoryChips.findIndex(cat => cat.id === selectedCategory);
+      if (categoryIndex === -1) return;
+
+      setTimeout(() => {
+        const estimatedChipWidth = 90;
+        const gap = 12; // spacing.md - 4
+        const paddingLeft = spacing.md; // 16px
+        const screenWidth = Dimensions.get('window').width;
+        const scrollPosition = paddingLeft + (categoryIndex * (estimatedChipWidth + gap)) - (screenWidth / 2) + (estimatedChipWidth / 2);
         
-        switch (appliedSortBy) {
-          case 'Menor preço':
-            return priceA - priceB;
-          case 'Maior preço':
-            return priceB - priceA;
-          case 'Avaliação':
-            // Por enquanto, manter ordem original (futuramente pode adicionar campo de avaliação)
-            return 0;
-          default:
-            return 0;
-        }
-      });
+        chipsScrollViewRef.current?.scrollTo({
+          x: Math.max(0, scrollPosition),
+          animated: true,
+        });
+      }, 150);
+    }
+  }, [selectedCategory, chipPositions, categoryChips]);
+
+  // Mapear ordenação do UI para API
+  const mapSortByToAPI = useCallback((sortBy: string): SearchFilters['ordenarPor'] | undefined => {
+    switch (sortBy) {
+      case 'Menor preço':
+        return 'preco_asc';
+      case 'Maior preço':
+        return 'preco_desc';
+      case 'Avaliação':
+        return 'popularidade';
+      case 'Relevância':
+      default:
+        return undefined;
+    }
+  }, []);
+
+  // Mapear faixa de preço do UI para API (em centavos)
+  const mapPriceRangeToAPI = useCallback((priceRange: string): { precoMin?: number; precoMax?: number } => {
+    switch (priceRange) {
+      case 'Até R$ 10':
+        return { precoMax: 1000 }; // R$ 10,00 em centavos
+      case 'R$ 10-25':
+        return { precoMin: 1000, precoMax: 2500 }; // R$ 10,00 a R$ 25,00
+      case 'R$ 25-50':
+        return { precoMin: 2500, precoMax: 5000 }; // R$ 25,00 a R$ 50,00
+      case 'Acima de R$ 50':
+        return { precoMin: 5000 }; // Acima de R$ 50,00
+      case 'Todos':
+      default:
+        return {};
+    }
+  }, []);
+
+  // Ref para controlar se já foi feita a busca inicial
+  const isInitialMount = useRef(true);
+  // Ref para debounce do useEffect
+  const filterDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Buscar produtos quando query, categoria ou filtros mudarem
+  useEffect(() => {
+    // Ignorar a primeira renderização (hook já busca inicialmente)
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
     }
 
-    return filtered;
-  }, [selectedCategory, appliedSortBy, appliedPriceRange, allProducts]);
+    // Limpar timer anterior para evitar múltiplas requisições
+    if (filterDebounceTimerRef.current) {
+      clearTimeout(filterDebounceTimerRef.current);
+    }
 
-  const handleCategoryPress = (categoryId: string) => {
+    // Debounce de 600ms para mudanças de filtros (reduz rate limit)
+    filterDebounceTimerRef.current = setTimeout(() => {
+      const filters: SearchFilters = {
+        categoriaId: selectedCategory !== 'todos' ? selectedCategory : undefined,
+        ordenarPor: appliedSortBy ? mapSortByToAPI(appliedSortBy) : undefined,
+        ...mapPriceRangeToAPI(appliedPriceRange || 'Todos'),
+      };
+
+      performSearch(searchQuery, filters);
+    }, 600);
+
+    // Cleanup
+    return () => {
+      if (filterDebounceTimerRef.current) {
+        clearTimeout(filterDebounceTimerRef.current);
+      }
+    };
+  }, [selectedCategory, searchQuery, appliedSortBy, appliedPriceRange, performSearch, mapSortByToAPI, mapPriceRangeToAPI]);
+
+  // Handler para mudança de texto na busca
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    // A busca será feita automaticamente pelo useEffect acima com debounce do hook
+  }, []);
+
+  // Handler para mudança de categoria
+  const handleCategoryPress = useCallback((categoryId: string) => {
+    if (categoryId !== selectedCategory) {
+      setIsChangingCategory(true);
+    }
     setSelectedCategory(categoryId);
-  };
+    // A busca será feita automaticamente pelo useEffect acima
+  }, [selectedCategory]);
+
+  // Handler para scroll infinito
+  const handleScroll = useCallback((event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const paddingToBottom = 20;
+    if (layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom) {
+      if (hasMore && !loading && !refreshing) {
+        loadMore();
+      }
+    }
+  }, [hasMore, loading, refreshing, loadMore]);
 
   // Sincronizar valores temporários com os aplicados ao abrir o modal
   useEffect(() => {
@@ -371,18 +359,79 @@ export function Search() {
     }
   }, [filterModalVisible, appliedSortBy, appliedPriceRange]);
 
-  const handleAddToCart = (product: Product) => {
+  // Resetar isChangingCategory quando loading terminar
+  useEffect(() => {
+    if (!loading && isChangingCategory) {
+      setIsChangingCategory(false);
+    }
+  }, [loading, isChangingCategory]);
+
+  // Handler para adicionar ao carrinho
+  const handleAddToCart = useCallback((product: Product) => {
+    const hasDiscount = product.precoPromocional && product.precoPromocional < product.preco;
     addItem({
-      id: product.id,
-      title: product.title,
-      showDriver: product.showDriver,
-      driverLabel: product.driverLabel || '',
-      basePrice: parseFloat(product.basePrice?.replace('R$', '').replace(',', '.') || '0') * 100,
-      finalPrice: parseFloat(product.finalPrice?.replace('R$', '').replace(',', '.') || '0') * 100,
-      discountValue: parseFloat(product.discountValue?.replace('R$', '').replace(',', '.') || '0') * 100,
-      type: product.type,
+      id: product.id, // ID temporário (será substituído pelo ID do item do carrinho quando vier do backend)
+      produtoId: product.id, // ID do produto original (usado para encontrar itens no carrinho)
+      title: product.nome,
+      showDriver: product.maisPopular || false,
+      driverLabel: product.maisPopular ? 'Popular' : '',
+      basePrice: hasDiscount ? product.preco : 0,
+      finalPrice: product.precoPromocional || product.preco,
+      discountValue: hasDiscount ? product.preco - (product.precoPromocional || product.preco) : 0,
+      type: product.emOferta ? 'Offer' : 'Default',
     });
-  };
+  }, [addItem]);
+
+  // Calcular total do carrinho (memoizado)
+  const totalPrice = useMemo(() => {
+    const subtotal = cartItems.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
+    const deliveryFee = 900; // R$9,00 em centavos
+    const discount = appliedCoupon 
+      ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
+      : 0;
+    return subtotal + deliveryFee - discount;
+  }, [cartItems, appliedCoupon]);
+
+  // Mostrar barra do carrinho quando um item é adicionado
+  useEffect(() => {
+    if (totalItems > 0) {
+      // Se há itens no carrinho, mostrar a barra
+      setShowCartBar(true);
+      Animated.parallel([
+        Animated.timing(cartBarOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cartBarTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      // Se não há itens, esconder a barra
+      setShowCartBar(false);
+      Animated.parallel([
+        Animated.timing(cartBarOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cartBarTranslateY, {
+          toValue: 20,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalItems]);
+
+  // Handler para navegar para o carrinho
+  const handleCartPress = useCallback(() => {
+    navigation.navigate('Cart');
+  }, [navigation]);
 
   return (
     <>
@@ -394,13 +443,8 @@ export function Search() {
         style={styles.safeArea}
         edges={['top']}
       >
-        <KeyboardAvoidingView
-          style={styles.keyboardAvoidingView}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
-          {/* Header with Search */}
-          <View style={styles.header}>
+        {/* Header with Search */}
+        <View style={styles.header}>
           <View style={styles.headerContent}>
             <TouchableOpacity
               onPress={() => navigation.goBack()}
@@ -414,11 +458,12 @@ export function Search() {
             <View style={styles.searchInputContainer}>
               <SearchIcon size={20} color={colors.mutedForeground} strokeWidth={2} />
               <TextInput
+                ref={searchInputRef}
                 style={styles.searchInput}
                 placeholder="Buscar itens"
                 placeholderTextColor={colors.mutedForeground}
                 value={searchQuery}
-                onChangeText={setSearchQuery}
+                onChangeText={handleSearchChange}
                 returnKeyType="search"
                 autoFocus={false}
                 multiline={false}
@@ -437,28 +482,45 @@ export function Search() {
 
           {/* Category Chips */}
           <ScrollView
+            ref={chipsScrollViewRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.chipsContainer}
             style={styles.chipsScroll}
+            decelerationRate="normal"
+            scrollEventThrottle={16}
           >
-            {categories.map((category) => (
-              <Chip
+            {categoryChips.map((category) => (
+              <View
                 key={category.id}
-                label={category.label}
-                state={selectedCategory === category.id ? 'Selected' : 'Default'}
-                type={category.iconSource ? 'With Image' : 'Default'}
-                iconSource={category.iconSource}
-                showClose={false}
-                onPress={() => handleCategoryPress(category.id)}
-                style={styles.chip}
-              />
+                onLayout={(event) => {
+                  const { x } = event.nativeEvent.layout;
+                  const paddingLeft = spacing.md; // 16px
+                  // Calcular posição acumulada: padding + (posições anteriores) + x atual
+                  const accumulatedPosition = paddingLeft + x;
+                  setChipPositions(prev => ({
+                    ...prev,
+                    [category.id]: accumulatedPosition,
+                  }));
+                }}
+                collapsable={false}
+              >
+                <Chip
+                  label={category.label}
+                  state={selectedCategory === category.id ? 'Selected' : 'Default'}
+                  type={category.iconSource ? 'With Image' : 'Default'}
+                  iconSource={category.iconSource}
+                  showClose={false}
+                  onPress={() => handleCategoryPress(category.id)}
+                  style={styles.chip}
+                />
+              </View>
             ))}
           </ScrollView>
         </View>
 
         {/* Content */}
-        {loading ? (
+        {(loading && backendProducts.length === 0) || isChangingCategory ? (
           <View style={styles.skeletonContainer}>
             {/* Skeleton Header */}
             <View style={styles.skeletonHeader}>
@@ -483,24 +545,57 @@ export function Search() {
             <View style={styles.skeletonProductsGrid}>
               {[1, 2, 3, 4, 5, 6].map((i) => (
                 <View key={i} style={styles.skeletonProductCard}>
-                  <Skeleton width="100%" height={117} borderRadius={8} />
-                  <Skeleton width="90%" height={16} borderRadius={4} style={{ marginTop: spacing.sm }} />
-                  <Skeleton width="70%" height={12} borderRadius={4} style={{ marginTop: spacing.xs }} />
-                  <Skeleton width="60%" height={16} borderRadius={4} style={{ marginTop: spacing.sm }} />
+                  {/* Imagem quadrada (aspectRatio 1:1) */}
+                  <Skeleton width={117} height={117} borderRadius={8} />
+                  
+                  {/* Container de informações do produto */}
+                  <View style={styles.skeletonProductInfo}>
+                    {/* Título (2 linhas) */}
+                    <Skeleton width="100%" height={16.8} borderRadius={4} />
+                    <Skeleton width="85%" height={16.8} borderRadius={4} style={{ marginTop: 6 }} />
+                    
+                    {/* Descrição (1 linha) */}
+                    <Skeleton width="70%" height={14.4} borderRadius={4} style={{ marginTop: 6 }} />
+                    
+                    {/* Preço */}
+                    <Skeleton width="50%" height={19.2} borderRadius={4} style={{ marginTop: 12 }} />
+                  </View>
                 </View>
               ))}
             </View>
           </View>
+        ) : error && backendProducts.length === 0 ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>
+              {error.message || 'Erro ao carregar produtos. Toque para tentar novamente.'}
+            </Text>
+            <TouchableOpacity onPress={refresh} style={styles.retryButton}>
+              <Text style={styles.retryButtonText}>Tentar novamente</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <ScrollView
+            ref={scrollViewRef}
             style={styles.scrollView}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={refresh}
+                tintColor={colors.primary}
+                colors={[colors.primary]}
+              />
+            }
           >
             {/* Results Count */}
             <SectionTitle
-              title={`${products.length} itens encontrados`}
+              title={`${totalResults} ${totalResults === 1 ? 'item encontrado' : 'itens encontrados'}`}
               showIcon={false}
               showTimer={false}
               showLink={false}
@@ -511,7 +606,7 @@ export function Search() {
             {/* Applied Filters Section */}
             {(appliedSortBy !== null || appliedPriceRange !== null) && (
               <View style={styles.appliedFiltersContainer}>
-                <Text style={styles.appliedFiltersLabel}>Ordenando por</Text>
+                <Text style={styles.appliedFiltersLabel}>Filtros aplicados:</Text>
                 {appliedSortBy !== null && appliedSortBy !== 'Relevância' && (
                   <Badge
                     label={appliedSortBy}
@@ -540,29 +635,46 @@ export function Search() {
               </View>
             )}
 
-            {/* Products Grid */}
-            <View style={styles.productsGrid}>
-              {products.map((product) => (
-                <View key={product.id} style={styles.productCardWrapper}>
-                  <ProductCard
-                    id={product.id}
-                    title={product.title}
-                    description={product.description}
-                    showDriver={product.showDriver}
-                    driverLabel={product.driverLabel}
-                    basePrice={product.basePrice}
-                    finalPrice={product.finalPrice}
-                    discountValue={product.discountValue}
-                    type={product.type}
-                    onAddToCart={() => handleAddToCart(product)}
-                    style={styles.productCard}
-                  />
-                </View>
-              ))}
-            </View>
+            {/* Products Grid or Empty State */}
+            {!isChangingCategory ? (
+              backendProducts.length === 0 ? (
+                <EmptyState
+                  type="search"
+                  title="Nenhum produto encontrado"
+                  description="Tente buscar com outras palavras-chave ou ajuste os filtros"
+                />
+              ) : (
+                <>
+                  <View style={styles.productsGrid}>
+                    {backendProducts.map((product) => {
+                      const cardData = convertProductToCard(product);
+                      return (
+                        <View key={product.id} style={styles.productCardWrapper}>
+                          <ProductCard
+                            {...cardData}
+                            onAddToCart={() => handleAddToCart(product)}
+                            onPress={() => navigation.navigate('ProductDetails', { productId: product.id })}
+                            style={styles.productCard}
+                          />
+                        </View>
+                      );
+                    })}
+                  </View>
+                  {loading && backendProducts.length > 0 && (
+                    <View style={styles.loadingMore}>
+                      <Text style={styles.loadingMoreText}>Carregando mais produtos...</Text>
+                    </View>
+                  )}
+                  {!hasMore && backendProducts.length > 0 && (
+                    <View style={styles.loadingMore}>
+                      <Text style={styles.loadingMoreText}>Todos os produtos foram carregados</Text>
+                    </View>
+                  )}
+                </>
+              )
+            ) : null}
           </ScrollView>
         )}
-        </KeyboardAvoidingView>
 
         {/* Filter Modal */}
         <ModalBottomSheet
@@ -580,6 +692,7 @@ export function Search() {
             setAppliedSortBy(tempSortBy);
             setAppliedPriceRange(tempPriceRange);
             setFilterModalVisible(false);
+            // A busca será feita automaticamente pelo useEffect que monitora appliedSortBy e appliedPriceRange
           }}
           showSecondaryButton={false}
         >
@@ -660,6 +773,25 @@ export function Search() {
             </View>
           </View>
         </ModalBottomSheet>
+
+        {/* Fixed Cart Bar */}
+        {showCartBar && (
+          <Animated.View
+            style={[
+              styles.cartBarContainer,
+              {
+                opacity: cartBarOpacity,
+                transform: [{ translateY: cartBarTranslateY }],
+              }
+            ]}
+          >
+            <FixedCartBar
+              totalItems={totalItems}
+              totalPrice={totalPrice}
+              onPress={handleCartPress}
+            />
+          </Animated.View>
+        )}
       </SafeAreaView>
     </>
   );
@@ -672,10 +804,9 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-    paddingHorizontal: spacing.lg, // 20px
-    paddingTop: spacing.lg, // 24px
+
+    paddingHorizontal: spacing.md, // 16px
+    paddingTop: spacing.md, // 16px
     paddingBottom: spacing.md, // 16px
     gap: spacing.md, // 16px
   },
@@ -698,7 +829,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray[500], // muted
     borderRadius: borderRadius.md,
     paddingHorizontal: 14,
-    paddingVertical: 10,
     height: 44,
   },
   searchInput: {
@@ -712,7 +842,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     includeFontPadding: false,
     lineHeight: typography.base.lineHeight,
-    minHeight: 24,
+    height: '100%',
   },
   filterButton: {
     width: 41,
@@ -737,8 +867,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: spacing.lg, // 20px
+    paddingHorizontal: spacing.md, // 16px
     paddingTop: 0,
+    paddingBottom: 120, // Espaço para o FixedCartBar (altura aproximada: 60px + margem: 40px)
   },
   sectionTitle: {
     paddingVertical: spacing.md, // 16px
@@ -802,7 +933,8 @@ const styles = StyleSheet.create({
   },
   skeletonContainer: {
     flex: 1,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.md, // 16px - Mesmo padding do scrollContent
+    paddingTop: 0,
   },
   skeletonHeader: {
     flexDirection: 'row',
@@ -817,21 +949,67 @@ const styles = StyleSheet.create({
   },
   skeletonSectionTitle: {
     marginBottom: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 0, // Mesmo padding do sectionTitle real
   },
   skeletonProductsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
+    width: '100%',
+    rowGap: 12, // Mesmo gap vertical do productsGrid real
+    paddingHorizontal: 0, // O padding já vem do skeletonContainer
   },
   skeletonProductCard: {
-    width: '48%',
+    width: '48%', // Mesma largura do productCardWrapper
+    flexDirection: 'column',
+    gap: 12, // Mesmo gap do ProductCard container
+    alignSelf: 'flex-start',
+  },
+  skeletonProductInfo: {
+    width: '100%',
+    flexDirection: 'column',
+    gap: 6, // Mesmo gap do nameContainer
+  },
+  errorContainer: {
+    flex: 1,
+    padding: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 200,
+  },
+  errorText: {
+    ...typography.base,
+    color: colors.red?.[600] || '#DC2626',
+    textAlign: 'center',
     marginBottom: spacing.md,
   },
-  keyboardAvoidingView: {
-    flex: 1,
+  retryButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    ...typography.base,
+    color: colors.white,
+    fontWeight: fontWeights.semibold,
+  },
+  loadingMore: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+    width: '100%',
+  },
+  loadingMoreText: {
+    ...typography.sm,
+    color: colors.mutedForeground,
+  },
+  cartBarContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    paddingBottom: 0,
   },
 });
 

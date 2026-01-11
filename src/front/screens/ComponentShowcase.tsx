@@ -2,7 +2,7 @@ import { ScrollView, Text, View, TouchableOpacity, StyleSheet } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Button, Badge, Driver, CategoryCard, CategoryGrid, CategoryItem, ProductCard, HomeHeader, SectionTitle, BottomMenuItem, BottomMenu, BottomMenuItemData, Input, ImageSlider, SliderItem, Separator } from '../../../components/ui';
+import { Button, Badge, Driver, CategoryCard, CategoryGrid, CategoryItem, ProductCard, HomeHeader, SectionTitle, BottomMenuItem, BottomMenu, BottomMenuItemData, Input, ImageSlider, SliderItem, Separator, Toast } from '../../../components/ui';
 import { 
   ShowcaseSection, 
   PropsTable, 
@@ -12,6 +12,7 @@ import {
 } from '../../../components/docs';
 import { colors, spacing, typography, fontWeights, borderRadius } from '../../lib/styles';
 import { Home, ShoppingBag, User, Heart, Bell } from 'lucide-react-native';
+import { useState } from 'react';
 
 type RootStackParamList = {
   Home: undefined;
@@ -22,6 +23,15 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export function ComponentShowcase() {
   const navigation = useNavigation<NavigationProp>();
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+
+  const showToast = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+    setToastType(type);
+    setToastMessage(message);
+    setToastVisible(true);
+  };
 
   const buttonProps = [
     {
@@ -1531,8 +1541,123 @@ const menuItemsWithNavigation: BottomMenuItemData[] = [
 />`} />
             </VariantGroup>
           </ShowcaseSection>
+
+          {/* Toast Section */}
+          <ShowcaseSection
+            title="Toast"
+            description="Componente de notificação toast para exibir mensagens de sucesso, erro, informação e aviso. Aparece no topo da tela com animação e desaparece automaticamente."
+          >
+            <PropsTable props={[
+              {
+                name: 'visible',
+                type: 'boolean',
+                required: true,
+                description: 'Controla a visibilidade do toast',
+              },
+              {
+                name: 'message',
+                type: 'string',
+                required: true,
+                description: 'Mensagem a ser exibida no toast',
+              },
+              {
+                name: 'type',
+                type: "'success' | 'error' | 'info' | 'warning'",
+                default: "'error'",
+                description: 'Tipo do toast que define cor e ícone',
+              },
+              {
+                name: 'onHide',
+                type: '() => void',
+                description: 'Callback chamado quando o toast é ocultado',
+              },
+              {
+                name: 'duration',
+                type: 'number',
+                default: '3000',
+                description: 'Duração em milissegundos antes de ocultar automaticamente',
+              },
+            ]} />
+
+            <VariantGroup title="Tipos de Toast">
+              <ExampleItem label="Success">
+                <Button
+                  title="Mostrar Toast Success"
+                  variant="primary"
+                  onPress={() => showToast('success', 'Operação realizada com sucesso!')}
+                />
+              </ExampleItem>
+              <ExampleItem label="Error">
+                <Button
+                  title="Mostrar Toast Error"
+                  variant="primary"
+                  onPress={() => showToast('error', 'Ocorreu um erro ao processar sua solicitação.')}
+                />
+              </ExampleItem>
+              <ExampleItem label="Info">
+                <Button
+                  title="Mostrar Toast Info"
+                  variant="primary"
+                  onPress={() => showToast('info', 'Esta é uma mensagem informativa importante.')}
+                />
+              </ExampleItem>
+              <ExampleItem label="Warning">
+                <Button
+                  title="Mostrar Toast Warning"
+                  variant="primary"
+                  onPress={() => showToast('warning', 'Atenção: Verifique os dados antes de continuar.')}
+                />
+              </ExampleItem>
+            </VariantGroup>
+
+            <VariantGroup title="Exemplos de Uso">
+              <CodeExample code={`import { Toast } from '@/components/ui';
+import { useState } from 'react';
+
+function MyComponent() {
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
+
+  const showToast = (type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+    setToastType(type);
+    setToastMessage(message);
+    setToastVisible(true);
+  };
+
+  return (
+    <>
+      <Button
+        title="Salvar"
+        onPress={() => {
+          // Lógica de salvamento
+          showToast('success', 'Dados salvos com sucesso!');
+        }}
+      />
+      
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setToastVisible(false)}
+        duration={3000}
+      />
+    </>
+  );
+}`} />
+            </VariantGroup>
+          </ShowcaseSection>
         </View>
       </ScrollView>
+
+      {/* Toast Component */}
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setToastVisible(false)}
+        duration={3000}
+      />
     </SafeAreaView>
   );
 }

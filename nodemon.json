@@ -1,0 +1,20 @@
+{
+  "watch": [
+    "src/back/api",
+    "src/back/config",
+    "src/back/models",
+    "src/back/services",
+    "src/back/repositories"
+  ],
+  "ext": "ts,json",
+  "ignore": [
+    "src/back/**/*.test.ts",
+    "src/back/**/*.spec.ts",
+    "node_modules"
+  ],
+  "exec": "ts-node --project tsconfig.backend.json src/back/api/server.ts",
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
+

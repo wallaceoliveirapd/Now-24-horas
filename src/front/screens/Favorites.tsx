@@ -3,9 +3,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState, useMemo } from 'react';
-import { PageTitle, ProductCard, Input } from '../../../components/ui';
+import { useState, useMemo, useEffect } from 'react';
+import { PageTitle, ProductCard, Input, Skeleton, EmptyState } from '../../../components/ui';
 import { colors, spacing } from '../../lib/styles';
+import { mockProducts, getImageSource } from '../../data/mockProducts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = spacing.md; // 16px
@@ -34,6 +35,9 @@ type RootStackParamList = {
   Addresses: undefined;
   PaymentMethods: undefined;
   Favorites: undefined;
+  ProductDetails: {
+    productId: string;
+  };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -53,45 +57,29 @@ interface FavoriteProduct {
 export function Favorites() {
   const navigation = useNavigation<NavigationProp>();
   const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
 
   // Lista de produtos favoritos (mockado - em produção viria de um contexto/API)
-  const [favoriteProducts] = useState<FavoriteProduct[]>([
-    {
-      id: '1',
-      title: 'Nome do produto com suas linhas no máximo',
-      description: 'Nome do produto com suas linha...',
-      showDriver: true,
-      driverLabel: 'Label',
-      basePrice: 'R$9,98',
-      finalPrice: 'R$9,98',
-      discountValue: 'R$12',
-      type: 'Offer',
-    },
-    {
-      id: '2',
-      title: 'Nome do produto com suas linhas no máximo',
-      description: 'Nome do produto com suas linha...',
-      showDriver: false,
-      finalPrice: 'R$9,98',
-      type: 'Default',
-    },
-    {
-      id: '3',
-      title: 'Nome do produto com suas linhas no máximo',
-      description: 'Nome do produto com suas linha...',
-      showDriver: false,
-      finalPrice: 'R$9,98',
-      type: 'Default',
-    },
-    {
-      id: '4',
-      title: 'Nome do produto com suas linhas no máximo',
-      description: 'Nome do produto com suas linha...',
-      showDriver: false,
-      finalPrice: 'R$9,98',
-      type: 'Default',
-    },
-  ]);
+  const [favoriteProducts] = useState<FavoriteProduct[]>(
+    mockProducts.slice(0, 4).map(p => ({
+      id: p.id,
+      title: p.title,
+      description: p.description,
+      showDriver: p.showDriver,
+      driverLabel: p.driverLabel,
+      basePrice: p.basePrice,
+      finalPrice: p.finalPrice,
+      discountValue: p.discountValue,
+      type: p.type,
+    }))
+  );
+
+  // Simular carregamento inicial
+  useEffect(() => {
+    setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+  }, []);
 
   // Filtrar produtos baseado na busca
   const filteredProducts = useMemo(() => {
@@ -142,26 +130,51 @@ export function Favorites() {
               />
             </View>
 
-            {/* Products Grid */}
-            <View style={styles.productsGrid}>
-              {filteredProducts.map((product) => (
-                <View key={product.id} style={styles.productCardWrapper}>
-                  <ProductCard
-                    id={product.id}
-                    title={product.title}
-                    description={product.description}
-                    showDriver={product.showDriver}
-                    driverLabel={product.driverLabel}
-                    basePrice={product.basePrice}
-                    finalPrice={product.finalPrice}
-                    discountValue={product.discountValue}
-                    type={product.type}
-                    isFavorite={true}
-                    style={styles.productCard}
-                  />
-                </View>
-              ))}
-            </View>
+            {loading ? (
+              /* Skeleton Loading */
+              <View style={styles.productsGrid}>
+                {[1, 2, 3, 4].map((i) => (
+                  <View key={i} style={styles.productCardWrapper}>
+                    <Skeleton width="100%" height={117} borderRadius={8} />
+                    <Skeleton width="90%" height={16} borderRadius={4} style={{ marginTop: spacing.sm }} />
+                    <Skeleton width="70%" height={12} borderRadius={4} style={{ marginTop: spacing.xs }} />
+                    <Skeleton width="60%" height={16} borderRadius={4} style={{ marginTop: spacing.sm }} />
+                  </View>
+                ))}
+              </View>
+            ) : filteredProducts.length === 0 ? (
+              /* Empty State */
+              <EmptyState
+                type="favorites"
+                title={searchQuery ? "Nenhum favorito encontrado" : "Nenhum produto favorito"}
+                description={searchQuery ? "Tente buscar com outras palavras-chave" : "Comece a adicionar produtos aos seus favoritos"}
+                actionLabel={searchQuery ? undefined : "Explorar produtos"}
+                onActionPress={searchQuery ? undefined : () => navigation.navigate('Search')}
+              />
+            ) : (
+              /* Products Grid */
+              <View style={styles.productsGrid}>
+                {filteredProducts.map((product) => (
+                  <View key={product.id} style={styles.productCardWrapper}>
+                    <ProductCard
+                      id={product.id}
+                      title={product.title}
+                      description={product.description}
+                      showDriver={product.showDriver}
+                      driverLabel={product.driverLabel}
+                      basePrice={product.basePrice}
+                      finalPrice={product.finalPrice}
+                      discountValue={product.discountValue}
+                      type={product.type}
+                      imageSource={getImageSource(mockProducts.find(p => p.id === product.id)?.imageUrl)}
+                      isFavorite={true}
+                      onPress={() => navigation.navigate('ProductDetails', { productId: product.id })}
+                      style={styles.productCard}
+                    />
+                  </View>
+                ))}
+              </View>
+            )}
           </ScrollView>
         </View>
       </SafeAreaView>

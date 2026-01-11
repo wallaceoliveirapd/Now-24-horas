@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.md,
     width: '100%',
   },
   backButton: {
@@ -96,8 +96,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    fontSize: 18,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 16,
     fontFamily: typography.base.fontFamily,
     fontWeight: fontWeights.semibold,
     color: colors.black,

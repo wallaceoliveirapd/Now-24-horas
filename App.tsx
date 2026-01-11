@@ -4,6 +4,9 @@ import { AppNavigator } from './src/front/navigation/AppNavigator';
 import { useAppFonts } from './src/hooks/useFonts';
 import { colors } from './src/lib/styles';
 import { CartProvider } from './src/contexts/CartContext';
+import { AddressProvider } from './src/contexts/AddressContext';
+import { PaymentCardProvider } from './src/contexts/PaymentCardContext';
+import { AuthProvider } from './src/contexts/AuthContext';
 
 export default function App() {
   const { fontsLoaded } = useAppFonts();
@@ -17,8 +20,14 @@ export default function App() {
   }
 
   return (
-    <CartProvider>
-      <AppNavigator />
-    </CartProvider>
+    <AuthProvider>
+      <CartProvider>
+        <AddressProvider>
+          <PaymentCardProvider>
+            <AppNavigator />
+          </PaymentCardProvider>
+        </AddressProvider>
+      </CartProvider>
+    </AuthProvider>
   );
 }

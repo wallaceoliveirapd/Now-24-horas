@@ -1,18 +1,18 @@
 import { useFonts } from 'expo-font';
 import {
-  InstrumentSans_400Regular,
-  InstrumentSans_500Medium,
-  InstrumentSans_600SemiBold,
-  InstrumentSans_700Bold,
-} from '@expo-google-fonts/instrument-sans';
+  Geist_400Regular,
+  Geist_500Medium,
+  Geist_600SemiBold,
+  Geist_700Bold,
+} from '@expo-google-fonts/geist';
 
 export function useAppFonts() {
   const [fontsLoaded, fontError] = useFonts({
-    'Instrument Sans': InstrumentSans_400Regular,
-    'Instrument Sans_400': InstrumentSans_400Regular,
-    'Instrument Sans_500': InstrumentSans_500Medium,
-    'InstrumentSans_600': InstrumentSans_600SemiBold,
-    'Instrument Sans_700': InstrumentSans_700Bold,
+    'Geist': Geist_400Regular,
+    'Geist_400': Geist_400Regular,
+    'Geist_500': Geist_500Medium,
+    'Geist_600': Geist_600SemiBold,
+    'Geist_700': Geist_700Bold,
   });
 
   return { fontsLoaded, fontError };

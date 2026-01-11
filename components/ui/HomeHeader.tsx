@@ -1,23 +1,23 @@
 import { View, Text, StyleSheet, ViewStyle, TouchableOpacity } from 'react-native';
-import { MapPin, ShoppingCart } from 'lucide-react-native';
-import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
+import { Search, MapPin, Bell, ChevronDown } from 'lucide-react-native';
+import { colors, spacing, typography, fontWeights, combineStyles } from '../../src/lib/styles';
 import { Driver } from './Driver';
 
 interface HomeHeaderProps {
-  firstName?: string;
   address?: string;
-  cartCount?: number;
+  notificationCount?: number;
+  onSearchPress?: () => void;
   onAddressPress?: () => void;
-  onCartPress?: () => void;
+  onNotificationPress?: () => void;
   style?: ViewStyle;
 }
 
 export function HomeHeader({ 
-  firstName = 'Wallace',
-  address = 'Av. Rua do Amor, 256',
-  cartCount = 9,
+  address = 'Rua do amor, 233',
+  notificationCount = 2,
+  onSearchPress,
   onAddressPress,
-  onCartPress,
+  onNotificationPress,
   style
 }: HomeHeaderProps) {
   const containerStyle = combineStyles(
@@ -27,43 +27,47 @@ export function HomeHeader({
 
   return (
     <View style={containerStyle}>
-      {/* MapPin Icon and User Info */}
-      <View style={styles.leftSection}>
-        <TouchableOpacity 
-          onPress={onAddressPress}
-          activeOpacity={0.7}
-        >
-          <MapPin size={24} color={colors.white} strokeWidth={2} />
-        </TouchableOpacity>
-
-        {/* User Info */}
-        <View style={styles.userInfo}>
-          <View style={styles.greetingContainer}>
-            <Text style={styles.greetingText}>Olá,</Text>
-            <Text style={styles.firstNameText} numberOfLines={1}>
-              {firstName}
-            </Text>
-          </View>
-          
-          <Text style={styles.addressText} numberOfLines={1}>
-            {address}
-          </Text>
-        </View>
-      </View>
-
-      {/* Shopping Cart Icon */}
+      {/* Search Icon Container */}
       <TouchableOpacity 
-        onPress={onCartPress}
-        style={styles.cartIconContainer}
+        onPress={onSearchPress}
+        style={styles.searchContainer}
         activeOpacity={0.7}
       >
-        <ShoppingCart size={24} color={colors.white} strokeWidth={2} />
-        {cartCount > 0 && (
-          <View style={styles.cartBadge}>
-            <Driver 
-              label={`+${cartCount}`} 
-              type="Secondary" 
-            />
+        <Search size={20} color={colors.mutedForeground} strokeWidth={2} />
+      </TouchableOpacity>
+
+      {/* Address Container */}
+      <TouchableOpacity 
+        style={styles.addressContainer}
+        onPress={onAddressPress}
+        activeOpacity={0.7}
+      >
+        <View style={styles.addressContent}>
+          <View style={styles.addressTextContainer}>
+            <Text style={styles.addressLabel}>Endereço</Text>
+            <View style={styles.addressInfo}>
+              <MapPin size={14} color={colors.primary} strokeWidth={2} style={styles.mapPinIcon} />
+              <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="tail">
+                {address}
+              </Text>
+              <ChevronDown size={10.67} color={colors.mutedForeground} strokeWidth={2} />
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Notification Icon Container */}
+      <TouchableOpacity 
+        onPress={onNotificationPress}
+        style={styles.notificationContainer}
+        activeOpacity={0.7}
+      >
+        <Bell size={20} color={colors.mutedForeground} strokeWidth={2} />
+        {notificationCount > 0 && (
+          <View style={styles.notificationBadge}>
+            <Text style={styles.notificationBadgeText}>
+              {notificationCount > 9 ? '9+' : notificationCount}
+            </Text>
           </View>
         )}
       </TouchableOpacity>
@@ -73,62 +77,95 @@ export function HomeHeader({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.primary,
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.lg,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     width: '100%',
+    minHeight: 40,
   },
-  leftSection: {
-    flex: 1,
-    flexDirection: 'row',
+  searchContainer: {
+    width: 40,
+    height: 40,
+    backgroundColor: colors.gray[100],
+    borderRadius: 99, // Circular
     alignItems: 'center',
-    gap: spacing.sm,
-    minWidth: 0,
+    justifyContent: 'center',
   },
-  userInfo: {
+  addressContainer: {
     flex: 1,
+    marginHorizontal: spacing.md,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addressContent: {
     flexDirection: 'column',
-    gap: 2,
+    alignItems: 'center',
+    gap: 6,
     minWidth: 0,
   },
-  greetingContainer: {
+  addressTextContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 0,
+  },
+  addressLabel: {
+    ...typography.xs,
+    fontSize: 12,
+    fontWeight: fontWeights.normal,
+    color: colors.mutedForeground,
+    lineHeight: 12,
+    paddingBottom: 4,
+  },
+  addressInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-  },
-  greetingText: {
-    ...typography.base,
-    fontWeight: fontWeights.semibold,
-    color: colors.white,
-    lineHeight: 18,
-  },
-  firstNameText: {
-    ...typography.base,
-    fontWeight: fontWeights.semibold,
-    color: colors.white,
-    lineHeight: 18,
-    flex: 1,
+    gap: 4,
+    minWidth: 0,
   },
   addressText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontFamily: typography.sm.fontFamily,
-    fontWeight: fontWeights.normal,
-    color: colors.gray[100],
+    ...typography.xs,
+    fontSize: 14,
+    fontWeight: fontWeights.medium,
+    color: colors.black,
+    lineHeight: 14,
+    flexShrink: 1,
+    maxWidth: '70%',
   },
-  cartIconContainer: {
-    width: 24,
-    height: 24,
+  mapPinIcon: {
+    marginBottom: 4,
+  },
+  notificationContainer: {
+    width: 40,
+    height: 40,
+    backgroundColor: colors.gray[100],
+    borderRadius: 99, // Circular
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
-  cartBadge: {
+  notificationBadge: {
     position: 'absolute',
-    top: -8,
-    right: -8,
+    left: 20,
+    top: 2,
+    backgroundColor: colors.secondary, // #FFE02F
+    borderRadius: 99, // Circular
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  notificationBadgeText: {
+    ...typography.xs,
+    fontSize: 10,
+    fontWeight: fontWeights.medium,
+    color: colors.black,
+    lineHeight: 14,
+    textAlign: 'center',
   },
 });
 

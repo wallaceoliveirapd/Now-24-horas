@@ -11,10 +11,12 @@ import {
   Button,
   PageTitle,
   SkeletonLoader,
-  Skeleton
+  Skeleton,
+  EmptyState
 } from '../../../components/ui';
 import { colors, spacing, typography, fontWeights, borderRadius } from '../../lib/styles';
 import { useCart, CartItem } from '../../contexts/CartContext';
+import { calculateCouponDiscount } from '../../lib/couponUtils';
 
 type RootStackParamList = {
   Home: undefined;
@@ -37,7 +39,7 @@ function formatCurrency(value: number): string {
 
 export function Cart() {
   const navigation = useNavigation<NavigationProp>();
-  const { items: cartItems, updateQuantity, removeItem, totalItems, appliedCoupon, setAppliedCoupon } = useCart();
+  const { items: cartItems, updateQuantity, removeItem, totalItems, appliedCoupon, removeCoupon } = useCart();
   const [loading, setLoading] = useState(true);
   
   // Simular carregamento inicial
@@ -48,22 +50,43 @@ export function Cart() {
   }, []);
   
   const hasCoupon = appliedCoupon !== null;
-  const couponDiscount = appliedCoupon?.discountAmount || 0;
 
   // Calcular totais
   const totals = useMemo(() => {
     const subtotal = cartItems.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
     const deliveryFee = 900; // R$9,00 em centavos
-    const discount = hasCoupon ? couponDiscount : 0;
+    const discount = appliedCoupon 
+      ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
+      : 0;
+    
+    // Debug: verificar cálculo do desconto
+    if (__DEV__ && appliedCoupon) {
+      console.log('💰 Cálculo de desconto:', {
+        subtotal,
+        deliveryFee,
+        coupon: appliedCoupon.couponCode,
+        discountType: appliedCoupon.discountType,
+        discountAmount: appliedCoupon.discountAmount,
+        hasConditions: !!appliedCoupon.couponConditions,
+        calculatedDiscount: discount,
+      });
+    }
+    
     const total = subtotal + deliveryFee - discount;
     
-    return {
+    const result = {
       subtotal,
       deliveryFee,
       discount,
       total,
     };
-  }, [cartItems, hasCoupon, couponDiscount]);
+    
+    if (__DEV__) {
+      console.log('🛒 Totais do carrinho:', result);
+    }
+    
+    return result;
+  }, [cartItems, appliedCoupon]);
 
   // Animações para o total
   const totalScale = useRef(new Animated.Value(1)).current;
@@ -71,7 +94,7 @@ export function Cart() {
   const totalTranslateY = useRef(new Animated.Value(0)).current;
   const previousTotal = useRef(totals.total);
 
-  // Animar total quando muda
+  // Animar total quando muda (animação rápida)
   useEffect(() => {
     if (previousTotal.current !== totals.total) {
       const isIncreasing = totals.total > previousTotal.current;
@@ -81,46 +104,42 @@ export function Cart() {
       totalOpacity.setValue(1);
       totalTranslateY.setValue(0);
       
-      // Animar
+      // Animação rápida
       Animated.parallel([
         Animated.sequence([
-          Animated.spring(totalScale, {
-            toValue: 1.1,
-            useNativeDriver: true,
-            tension: 200,
-            friction: 12,
-          }),
-          Animated.spring(totalScale, {
-            toValue: 1,
-            useNativeDriver: true,
-            tension: 200,
-            friction: 12,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(totalOpacity, {
-            toValue: 0.4,
+          Animated.timing(totalScale, {
+            toValue: 1.08,
             duration: 100,
             useNativeDriver: true,
           }),
-          Animated.timing(totalOpacity, {
+          Animated.timing(totalScale, {
             toValue: 1,
-            duration: 200,
+            duration: 100,
             useNativeDriver: true,
           }),
         ]),
         Animated.sequence([
-          Animated.spring(totalTranslateY, {
-            toValue: isIncreasing ? -6 : 6,
+          Animated.timing(totalOpacity, {
+            toValue: 0.6,
+            duration: 50,
             useNativeDriver: true,
-            tension: 200,
-            friction: 12,
           }),
-          Animated.spring(totalTranslateY, {
-            toValue: 0,
+          Animated.timing(totalOpacity, {
+            toValue: 1,
+            duration: 100,
             useNativeDriver: true,
-            tension: 200,
-            friction: 12,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(totalTranslateY, {
+            toValue: isIncreasing ? -3 : 3,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(totalTranslateY, {
+            toValue: 0,
+            duration: 100,
+            useNativeDriver: true,
           }),
         ]),
       ]).start();
@@ -153,8 +172,12 @@ export function Cart() {
   };
 
   // Remover cupom
-  const handleRemoveCoupon = () => {
-    setAppliedCoupon(null);
+  const handleRemoveCoupon = async () => {
+    try {
+      await removeCoupon();
+    } catch (error) {
+      console.error('Erro ao remover cupom:', error);
+    }
   };
 
   // Finalizar pedido
@@ -219,6 +242,21 @@ export function Cart() {
               <Skeleton width="100%" height={80} borderRadius={8} />
             </View>
           </View>
+        ) : cartItems.length === 0 ? (
+          /* Empty State */
+          <ScrollView 
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <EmptyState
+              type="cart"
+              title="Seu carrinho está vazio"
+              description="Adicione produtos ao carrinho para continuar comprando"
+              actionLabel="Explorar produtos"
+              onActionPress={() => navigation.navigate('Search')}
+            />
+          </ScrollView>
         ) : (
           <ScrollView 
             style={styles.scrollView}
@@ -241,6 +279,7 @@ export function Cart() {
                   onQuantityChange={handleQuantityChange}
                   onRemove={handleRemoveItem}
                   customizations={item.customizations}
+                  imageSource={item.imageSource}
                 />
               </View>
             ))}
@@ -251,7 +290,7 @@ export function Cart() {
                 <CupomBanner
                   type="Cupom Aplicado"
                   couponCode={appliedCoupon.couponCode}
-                  discountValue={`- R$ ${(couponDiscount / 100).toFixed(2).replace('.', ',')}`}
+                  discountValue={`- ${formatCurrency(totals.discount)}`}
                   onRemove={handleRemoveCoupon}
                 />
               ) : (
@@ -267,8 +306,8 @@ export function Cart() {
           </ScrollView>
         )}
 
-        {/* Fixed Bottom Bar */}
-        {loading ? (
+        {/* Fixed Bottom Bar - só mostra se não estiver carregando e houver itens */}
+        {loading && cartItems.length > 0 ? (
           <View style={styles.bottomBar}>
             {/* Skeleton Totals */}
             <View style={styles.skeletonTotalsContainer}>
@@ -293,7 +332,7 @@ export function Cart() {
             {/* Skeleton Button */}
             <Skeleton width="100%" height={48} borderRadius={8} style={{ marginTop: spacing.sm }} />
           </View>
-        ) : (
+        ) : !loading && cartItems.length > 0 ? (
           <View style={styles.bottomBar}>
             {/* Totals */}
             <View style={styles.totalsContainer}>
@@ -336,7 +375,7 @@ export function Cart() {
               style={styles.checkoutButton}
             />
           </View>
-        )}
+        ) : null}
         </View>
       </SafeAreaView>
     </>

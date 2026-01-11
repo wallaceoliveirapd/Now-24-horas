@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -238,24 +238,22 @@ export function Addresses() {
         edges={['top']}
       >
         <View style={{ backgroundColor: colors.white, flex: 1 }}>
-          <KeyboardAvoidingView
-            style={styles.keyboardAvoidingView}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-          >
-            {/* Header */}
-            <PageTitle
-              title="Meus endereços"
-              showCounter={false}
-              onBackPress={() => navigation.goBack()}
-            />
+          {/* Header */}
+          <PageTitle
+            title="Meus endereços"
+            showCounter={false}
+            onBackPress={() => navigation.goBack()}
+          />
 
-            {/* Content */}
-            <ScrollView 
-              style={styles.scrollView}
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-            >
+          {/* Content */}
+          <ScrollView 
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          >
               <View style={styles.addressesList}>
                 {addresses.map((address) => (
                   <View key={address.id} style={styles.addressCard}>
@@ -297,7 +295,6 @@ export function Addresses() {
                 style={styles.newAddressButton}
               />
             </View>
-          </KeyboardAvoidingView>
 
           {/* Modal Adicionar Endereço */}
           <ModalBottomSheet
@@ -608,9 +605,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: colors.white,
-  },
-  keyboardAvoidingView: {
-    flex: 1,
   },
   scrollView: {
     flex: 1,

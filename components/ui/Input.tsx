@@ -1,7 +1,7 @@
-import { View, Text, TextInput, StyleSheet, ViewStyle, TextInputProps, TouchableOpacity } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ViewStyle, TextInputProps, TouchableOpacity, Pressable } from 'react-native';
 import { Search, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react-native';
 import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 interface InputProps extends Omit<TextInputProps, 'style'> {
   placeholder?: string;
@@ -39,6 +39,7 @@ export function Input({
 }: InputProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const textInputRef = useRef<TextInput>(null);
   
   // Determinar o estado real
   // Se state for explícito (Focus, Disabled, Error, Success), usar ele
@@ -63,7 +64,7 @@ export function Input({
   const actualSecureTextEntry = showPasswordEye ? !isPasswordVisible : secureTextEntry;
 
   // Cores conforme Figma
-  const errorColor = '#e68b1c'; // Warning color do Figma
+  const errorColor = '#DC6E00'; // Cor de erro atualizada
   const successColor = colors.green[700]; // #449200
 
   // Determinar cor da borda e background baseado no estado
@@ -129,29 +130,38 @@ export function Input({
           </Text>
         </View>
       )}
-      <View style={containerStyles}>
+      <Pressable
+        style={containerStyles}
+        onPress={() => {
+          if (isEditable && textInputRef.current) {
+            textInputRef.current.focus();
+          }
+        }}
+        disabled={!isEditable}
+      >
         {showSearchIcon && (
           <View style={styles.iconContainer}>
             <Search size={24} color={iconColor} strokeWidth={2} />
           </View>
         )}
         <TextInput
+          ref={textInputRef}
           style={inputStyles}
           placeholder={placeholder}
           placeholderTextColor={colors.mutedForeground}
           editable={isEditable}
           secureTextEntry={actualSecureTextEntry}
-          onFocus={() => {
+          onFocus={(e) => {
             if (state === 'Default') {
               setIsFocused(true);
             }
-            textInputProps.onFocus?.();
+            textInputProps.onFocus?.(e);
           }}
-          onBlur={() => {
+          onBlur={(e) => {
             if (state === 'Default') {
               setIsFocused(false);
             }
-            textInputProps.onBlur?.();
+            textInputProps.onBlur?.(e);
           }}
           {...textInputProps}
         />
@@ -178,7 +188,7 @@ export function Input({
             )}
           </View>
         )}
-      </View>
+      </Pressable>
       {shouldShowMessage && (
         <Text style={[styles.message, { color: getMessageColor() }]}>
           {displayMessage}

@@ -4,6 +4,7 @@ import { spacing, combineStyles } from '../../src/lib/styles';
 import { CategoryCard } from './CategoryCard';
 
 export interface CategoryItem {
+  id?: string; // ID da categoria para navegação
   label: string;
   discountValue?: string;
   discountType?: 'currency' | 'percentage';
@@ -14,12 +15,14 @@ export interface CategoryItem {
 interface CategoryGridProps {
   categories: CategoryItem[];
   columns?: number;
+  onCategoryPress?: (categoryId: string, category: CategoryItem) => void;
   style?: ViewStyle;
 }
 
 export function CategoryGrid({ 
   categories,
   columns = 4,
+  onCategoryPress,
   style
 }: CategoryGridProps) {
   const [containerWidth, setContainerWidth] = useState(0);
@@ -67,6 +70,7 @@ export function CategoryGrid({
               discountType={category.discountType}
               type={category.type}
               iconSource={category.iconSource}
+              onPress={category.id && onCategoryPress ? () => onCategoryPress(category.id!, category) : undefined}
             />
           </View>
         );

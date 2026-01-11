@@ -1,7 +1,6 @@
 import { View, Text, StyleSheet, ViewStyle, TouchableOpacity, Animated } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { colors, spacing, borderRadius, typography, fontWeights, combineStyles } from '../../src/lib/styles';
-import { ShoppingCart } from 'lucide-react-native';
+import { ChevronRight, ShoppingCart } from 'lucide-react-native';
 import { useEffect, useRef } from 'react';
 
 interface FixedCartBarProps {
@@ -42,7 +41,7 @@ export function FixedCartBar({
   const badgeScale = useRef(new Animated.Value(1)).current;
   const previousItems = useRef(totalItems);
 
-  // Animar preço quando muda
+  // Animar preço quando muda (animação rápida)
   useEffect(() => {
     if (previousPrice.current !== totalPrice) {
       const isIncreasing = totalPrice > previousPrice.current;
@@ -52,46 +51,42 @@ export function FixedCartBar({
       priceOpacity.setValue(1);
       priceTranslateY.setValue(0);
       
-      // Animação de escala e movimento
+      // Animação rápida de escala e movimento
       Animated.parallel([
         Animated.sequence([
-          Animated.spring(priceScale, {
-            toValue: 1.15,
-            useNativeDriver: true,
-            tension: 200,
-            friction: 12,
-          }),
-          Animated.spring(priceScale, {
-            toValue: 1,
-            useNativeDriver: true,
-            tension: 200,
-            friction: 12,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(priceOpacity, {
-            toValue: 0.3,
+          Animated.timing(priceScale, {
+            toValue: 1.1,
             duration: 100,
             useNativeDriver: true,
           }),
-          Animated.timing(priceOpacity, {
+          Animated.timing(priceScale, {
             toValue: 1,
-            duration: 200,
+            duration: 100,
             useNativeDriver: true,
           }),
         ]),
         Animated.sequence([
-          Animated.spring(priceTranslateY, {
-            toValue: isIncreasing ? -8 : 8,
+          Animated.timing(priceOpacity, {
+            toValue: 0.5,
+            duration: 50,
             useNativeDriver: true,
-            tension: 200,
-            friction: 12,
           }),
-          Animated.spring(priceTranslateY, {
-            toValue: 0,
+          Animated.timing(priceOpacity, {
+            toValue: 1,
+            duration: 100,
             useNativeDriver: true,
-            tension: 200,
-            friction: 12,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(priceTranslateY, {
+            toValue: isIncreasing ? -4 : 4,
+            duration: 100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(priceTranslateY, {
+            toValue: 0,
+            duration: 100,
+            useNativeDriver: true,
           }),
         ]),
       ]).start();
@@ -100,26 +95,22 @@ export function FixedCartBar({
     }
   }, [totalPrice]);
 
-  // Animar badge quando quantidade muda
+  // Animar badge quando quantidade muda (animação rápida)
   useEffect(() => {
     if (previousItems.current !== totalItems && totalItems > 0) {
       badgeScale.setValue(1);
       
       Animated.sequence([
-        Animated.sequence([
-          Animated.spring(badgeScale, {
-            toValue: 1.3,
-            useNativeDriver: true,
-            tension: 300,
-            friction: 10,
-          }),
-          Animated.spring(badgeScale, {
-            toValue: 1,
-            useNativeDriver: true,
-            tension: 300,
-            friction: 10,
-          }),
-        ]),
+        Animated.timing(badgeScale, {
+          toValue: 1.2,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(badgeScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
       ]).start();
       
       previousItems.current = totalItems;
@@ -142,15 +133,11 @@ export function FixedCartBar({
   };
 
   return (
-    <BlurView
-      intensity={12}
-      tint="light"
-      style={containerStyle}
-    >
+    <View style={containerStyle}>
       <TouchableOpacity
         onPress={onPress}
         activeOpacity={0.8}
-        style={styles.touchableContent}
+        style={[styles.touchableContent, styles.whiteBackground]}
       >
         {/* Left Section: Cart Icon and Total */}
         <View style={styles.leftSection}>
@@ -184,16 +171,27 @@ export function FixedCartBar({
           </Text>
         </View>
       </TouchableOpacity>
-    </BlurView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    overflow: 'hidden',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-    width: '100%',
+    width: '93%',
+    alignSelf: 'center',
+    borderRadius: 99,
+    backgroundColor: colors.white,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
+    elevation: 4,
+  },
+  whiteBackground: {
+    backgroundColor: colors.white,
   },
   touchableContent: {
     flexDirection: 'row',
@@ -202,7 +200,8 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingRight: spacing.sm + 4, // 8px
     paddingVertical: spacing.sm + 4, // 8px
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 18,
+    overflow: 'hidden',
   },
   leftSection: {
     flexDirection: 'row',
@@ -225,7 +224,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,
-    borderRadius: borderRadius.sm,
+    borderRadius: 99,
     minWidth: 20,
     alignItems: 'center',
     justifyContent: 'center',
@@ -257,12 +256,13 @@ const styles = StyleSheet.create({
     color: colors.black,
   },
   buttonContainer: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    borderRadius: borderRadius.md,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    borderRadius: 99,
   },
   buttonText: {
     fontSize: typography.sm.fontSize,

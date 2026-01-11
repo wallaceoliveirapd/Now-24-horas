@@ -34,7 +34,7 @@ export const colors = {
     500: '#f97316',
   },
   red: {
-    600: '#dc2626',
+    600: '#DC6E00', // Cor de erro atualizada
   },
   yellow: {
     500: '#f59e0b',
@@ -43,6 +43,7 @@ export const colors = {
   secondary: '#FFE02F',
   secondaryLight: '#fff7cd', // Light yellow for CategoryCard discount variant
   mutedForeground: '#4C5564', // Muted text color
+  muted: '#f3f4f6', // Muted background color (gray[100])
   disabled: '#c5c5c5', // Disabled background color
   black: '#000000',
 };
@@ -64,7 +65,7 @@ export const borderRadius = {
 
 // Font Family
 export const fontFamily = {
-  sans: 'Instrument Sans', // Nome registrado no useFonts
+  sans: 'Geist', // Nome registrado no useFonts
 };
 
 export const typography = {

@@ -51,14 +51,12 @@ export function CartProductCard({
     style
   );
   
-  // Animações
+  // Animações (apenas para feedback visual rápido)
   const quantityScale = useRef(new Animated.Value(1)).current;
   const quantityOpacity = useRef(new Animated.Value(1)).current;
-  const plusButtonScale = useRef(new Animated.Value(1)).current;
-  const minusButtonScale = useRef(new Animated.Value(1)).current;
   const previousQuantity = useRef(quantity);
   
-  // Animar quando quantidade muda
+  // Animar quando quantidade muda (animação rápida e não bloqueante)
   useEffect(() => {
     if (previousQuantity.current !== quantity) {
       quantityScale.setValue(1);
@@ -66,28 +64,26 @@ export function CartProductCard({
       
       Animated.parallel([
         Animated.sequence([
-          Animated.spring(quantityScale, {
-            toValue: 1.2,
+          Animated.timing(quantityScale, {
+            toValue: 1.15,
+            duration: 100,
             useNativeDriver: true,
-            tension: 300,
-            friction: 8,
           }),
-          Animated.spring(quantityScale, {
+          Animated.timing(quantityScale, {
             toValue: 1,
+            duration: 100,
             useNativeDriver: true,
-            tension: 200,
-            friction: 10,
           }),
         ]),
         Animated.sequence([
           Animated.timing(quantityOpacity, {
-            toValue: 0.5,
-            duration: 100,
+            toValue: 0.7,
+            duration: 50,
             useNativeDriver: true,
           }),
           Animated.timing(quantityOpacity, {
             toValue: 1,
-            duration: 200,
+            duration: 100,
             useNativeDriver: true,
           }),
         ]),
@@ -102,49 +98,11 @@ export function CartProductCard({
     opacity: quantityOpacity,
   };
   
-  const animatedPlusButtonStyle = {
-    transform: [{ scale: plusButtonScale }],
-  };
-  
-  const animatedMinusButtonStyle = {
-    transform: [{ scale: minusButtonScale }],
-  };
-  
   const handlePlusPress = () => {
-    plusButtonScale.setValue(1);
-    Animated.sequence([
-      Animated.spring(plusButtonScale, {
-        toValue: 0.9,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 10,
-      }),
-      Animated.spring(plusButtonScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 10,
-      }),
-    ]).start();
     handleIncrease();
   };
   
   const handleMinusPress = () => {
-    minusButtonScale.setValue(1);
-    Animated.sequence([
-      Animated.spring(minusButtonScale, {
-        toValue: 0.9,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 10,
-      }),
-      Animated.spring(minusButtonScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 10,
-      }),
-    ]).start();
     handleDecrease();
   };
 
@@ -171,15 +129,17 @@ export function CartProductCard({
       {/* Product Image Container */}
       <View style={styles.imageContainer}>
         <View style={styles.imageWrapper}>
-          {imageSource ? (
-            <Image 
-              source={imageSource} 
-              style={styles.image}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.imagePlaceholder} />
-          )}
+          <View style={styles.imageInnerContainer}>
+            {imageSource ? (
+              <Image 
+                source={imageSource} 
+                style={styles.image}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={styles.imagePlaceholder} />
+            )}
+          </View>
         </View>
         
         {showDriver && (
@@ -284,38 +244,34 @@ export function CartProductCard({
               />
             </TouchableOpacity>
           ) : (
-            <Animated.View style={animatedMinusButtonStyle}>
-              <TouchableOpacity 
-                style={styles.quantityButton}
-                onPress={handleMinusPress}
-                activeOpacity={0.7}
-              >
-                <Minus 
-                  size={14} 
-                  color={colors.primary} 
-                  strokeWidth={2.5} 
-                />
-              </TouchableOpacity>
-            </Animated.View>
+            <TouchableOpacity 
+              style={styles.quantityButton}
+              onPress={handleMinusPress}
+              activeOpacity={0.7}
+            >
+              <Minus 
+                size={14} 
+                color={colors.primary} 
+                strokeWidth={2.5} 
+              />
+            </TouchableOpacity>
           )}
           
           <Animated.View style={[styles.quantityDisplay, animatedQuantityStyle]}>
             <Text style={styles.quantityText}>{quantity}</Text>
           </Animated.View>
           
-          <Animated.View style={animatedPlusButtonStyle}>
-            <TouchableOpacity 
-              style={styles.quantityButton}
-              onPress={handlePlusPress}
-              activeOpacity={0.7}
-            >
-              <Plus 
-                size={14} 
-                color={colors.primary} 
-                strokeWidth={2.5} 
-              />
-            </TouchableOpacity>
-          </Animated.View>
+          <TouchableOpacity 
+            style={styles.quantityButton}
+            onPress={handlePlusPress}
+            activeOpacity={0.7}
+          >
+            <Plus 
+              size={14} 
+              color={colors.primary} 
+              strokeWidth={2.5} 
+            />
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -339,22 +295,26 @@ const styles = StyleSheet.create({
   imageWrapper: {
     width: '100%',
     aspectRatio: 1,
-    backgroundColor: colors.gray[500],
+    backgroundColor: colors.gray[50], // #F9FAFB
     borderRadius: borderRadius.md,
-    padding: 10,
+    padding: spacing.sm, // 8px
+    overflow: 'hidden',
+  },
+  imageInnerContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.gray[50], // mesmo que o wrapper
+    borderRadius: borderRadius.sm,
     overflow: 'hidden',
   },
   image: {
     width: '100%',
     height: '100%',
-    aspectRatio: 1,
   },
   imagePlaceholder: {
     width: '100%',
     height: '100%',
-    aspectRatio: 1,
     backgroundColor: colors.gray[300],
-    borderRadius: borderRadius.sm,
   },
   driverTop: {
     position: 'absolute',

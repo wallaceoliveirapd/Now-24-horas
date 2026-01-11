@@ -1,17 +1,20 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   PageTitle,
   Button,
   ModalBottomSheet,
   Input,
-  Chip
+  Chip,
+  Skeleton,
+  EmptyState
 } from '../../../components/ui';
 import { colors, spacing, typography, fontWeights, borderRadius } from '../../lib/styles';
+import { usePaymentCard } from '../../contexts/PaymentCardContext';
 import { 
   CreditCard,
   Pencil,
@@ -45,7 +48,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 type CardType = 'Crédito' | 'Débito';
 
-interface PaymentCard {
+interface PaymentCardUI {
   id: string;
   type: CardType;
   lastDigits: string;
@@ -54,9 +57,12 @@ interface PaymentCard {
 
 export function PaymentMethods() {
   const navigation = useNavigation<NavigationProp>();
+  const { cards: backendCards, loading, addCard, updateCard, deleteCard, setDefaultCard } = usePaymentCard();
   const [addCardModalVisible, setAddCardModalVisible] = useState(false);
   const [editCardModalVisible, setEditCardModalVisible] = useState(false);
-  const [editingCard, setEditingCard] = useState<PaymentCard | null>(null);
+  const [editingCard, setEditingCard] = useState<PaymentCardUI | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [cardType, setCardType] = useState<CardType>('Crédito');
   const [cardForm, setCardForm] = useState({
     cardNumber: '',
@@ -66,21 +72,13 @@ export function PaymentMethods() {
     cpf: '',
   });
 
-  // Lista de cartões (mockado - em produção viria de um contexto/API)
-  const [cards, setCards] = useState<PaymentCard[]>([
-    {
-      id: '1',
-      type: 'Crédito',
-      lastDigits: '1234',
-      cardName: 'Nome do Titular',
-    },
-    {
-      id: '2',
-      type: 'Débito',
-      lastDigits: '5678',
-      cardName: 'Nome do Titular',
-    },
-  ]);
+  // Converter cartões do backend para formato da UI
+  const cards: PaymentCardUI[] = backendCards.map(card => ({
+    id: card.id,
+    type: card.tipo === 'cartao_credito' ? 'Crédito' : 'Débito',
+    lastDigits: card.ultimosDigitos,
+    cardName: card.nomeCartao,
+  }));
 
   // Função para formatar número do cartão (últimos 4 dígitos)
   const formatCardNumber = (lastDigits: string) => {
@@ -101,22 +99,27 @@ export function PaymentMethods() {
   };
 
   // Função para abrir modal de edição
-  const handleEditCard = (card: PaymentCard) => {
+  const handleEditCard = (card: PaymentCardUI) => {
+    const backendCard = backendCards.find(c => c.id === card.id);
+    if (!backendCard) return;
+
     setEditingCard(card);
     // Preencher formulário com dados do cartão (dados limitados por segurança)
+    const month = backendCard.mesValidade.toString().padStart(2, '0');
+    const year = backendCard.anoValidade.toString().slice(-2);
     setCardForm({
-      cardNumber: '',
-      cardName: card.cardName || '',
-      expiryDate: '',
-      cvv: '',
-      cpf: '',
+      cardNumber: '', // Não exibir número completo por segurança
+      cardName: backendCard.nomeCartao || '',
+      expiryDate: `${month}/${year}`,
+      cvv: '', // Não exibir CVV por segurança
+      cpf: '', // Não exibir CPF por segurança
     });
     setCardType(card.type);
     setEditCardModalVisible(true);
   };
 
   // Função para deletar cartão
-  const handleDeleteCard = (card: PaymentCard) => {
+  const handleDeleteCard = (card: PaymentCardUI) => {
     Alert.alert(
       'Confirmar exclusão',
       'Tem certeza que deseja excluir este cartão?',
@@ -128,8 +131,13 @@ export function PaymentMethods() {
         {
           text: 'Excluir',
           style: 'destructive',
-          onPress: () => {
-            setCards(cards.filter(c => c.id !== card.id));
+          onPress: async () => {
+            try {
+              setError(null);
+              await deleteCard(card.id);
+            } catch (err: any) {
+              setError(err.message || 'Erro ao excluir cartão');
+            }
           },
         },
       ],
@@ -138,31 +146,69 @@ export function PaymentMethods() {
   };
 
   // Função para salvar cartão (adicionar ou editar)
-  const handleSaveCard = () => {
-    // Gerar últimos 4 dígitos do número do cartão (remover espaços)
-    const cardNumberDigits = cardForm.cardNumber.replace(/\s/g, '');
-    const lastDigits = cardNumberDigits.slice(-4) || '0000';
-
-    const cardData: PaymentCard = {
-      id: editingCard?.id || String(Date.now()),
-      type: cardType,
-      lastDigits: lastDigits,
-      cardName: cardForm.cardName,
-    };
-
-    if (editingCard) {
-      // Editar cartão existente
-      setCards(cards.map(card => 
-        card.id === editingCard.id ? cardData : card
-      ));
-      setEditCardModalVisible(false);
-    } else {
-      // Adicionar novo cartão
-      setCards([...cards, cardData]);
-      setAddCardModalVisible(false);
+  const handleSaveCard = async () => {
+    // Validações
+    if (!cardForm.cardNumber || cardForm.cardNumber.replace(/\s/g, '').length < 13) {
+      setError('Número do cartão inválido');
+      return;
+    }
+    if (!cardForm.cardName) {
+      setError('Nome do titular é obrigatório');
+      return;
+    }
+    if (!cardForm.expiryDate || cardForm.expiryDate.length < 5) {
+      setError('Data de validade inválida');
+      return;
+    }
+    if (!cardForm.cvv || cardForm.cvv.length < 3) {
+      setError('CVV inválido');
+      return;
+    }
+    if (!cardForm.cpf || cardForm.cpf.replace(/\D/g, '').length < 11) {
+      setError('CPF inválido');
+      return;
     }
 
-    resetCardForm();
+    try {
+      setSaving(true);
+      setError(null);
+
+      // Extrair mês e ano da validade
+      const [month, year] = cardForm.expiryDate.split('/');
+      const fullYear = `20${year}`; // Assumir século 21
+
+      if (editingCard) {
+        // Atualizar cartão existente (apenas nome e validade)
+        await updateCard(editingCard.id, {
+          nomeCartao: cardForm.cardName,
+          mesValidade: parseInt(month),
+          anoValidade: parseInt(fullYear),
+        });
+        setEditCardModalVisible(false);
+      } else {
+        // Adicionar novo cartão
+        const cardNumberDigits = cardForm.cardNumber.replace(/\s/g, '');
+        const cpfDigits = cardForm.cpf.replace(/\D/g, '');
+
+        await addCard({
+          cardNumber: cardNumberDigits,
+          cardholderName: cardForm.cardName,
+          cardExpirationMonth: month,
+          cardExpirationYear: year,
+          securityCode: cardForm.cvv,
+          identificationType: 'CPF',
+          identificationNumber: cpfDigits,
+        });
+        setAddCardModalVisible(false);
+      }
+
+      resetCardForm();
+    } catch (err: any) {
+      console.error('Erro ao salvar cartão:', err);
+      setError(err.message || 'Erro ao salvar cartão. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Função para fechar modal e resetar formulário
@@ -187,24 +233,45 @@ export function PaymentMethods() {
         edges={['top']}
       >
         <View style={{ backgroundColor: colors.white, flex: 1 }}>
-          <KeyboardAvoidingView
-            style={styles.keyboardAvoidingView}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-          >
-            {/* Header */}
-            <PageTitle
-              title="Formas de pagamento"
-              showCounter={false}
-              onBackPress={() => navigation.goBack()}
-            />
+          {/* Header */}
+          <PageTitle
+            title="Formas de pagamento"
+            showCounter={false}
+            onBackPress={() => navigation.goBack()}
+          />
 
-            {/* Content */}
+          {/* Content */}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              {[1, 2].map((i) => (
+                <Skeleton key={i} width="100%" height={100} borderRadius={8} style={{ marginBottom: spacing.md }} />
+              ))}
+            </View>
+          ) : cards.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <EmptyState
+                type="generic"
+                icon={CreditCard}
+                title="Nenhum cartão cadastrado"
+                description="Adicione um cartão de pagamento para facilitar suas compras"
+                actionLabel="Adicionar cartão"
+                onActionPress={() => setAddCardModalVisible(true)}
+              />
+            </View>
+          ) : (
             <ScrollView 
               style={styles.scrollView}
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             >
+              {error && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
               <View style={styles.cardsList}>
                 {cards.map((card) => (
                   <View key={card.id} style={styles.cardItem}>
@@ -238,6 +305,7 @@ export function PaymentMethods() {
                 ))}
               </View>
             </ScrollView>
+          )}
 
             {/* Bottom Button */}
             <View style={styles.bottomButtonContainer}>
@@ -249,7 +317,6 @@ export function PaymentMethods() {
                 style={styles.newCardButton}
               />
             </View>
-          </KeyboardAvoidingView>
 
           {/* Modal Adicionar Cartão */}
           <ModalBottomSheet
@@ -257,8 +324,9 @@ export function PaymentMethods() {
             onClose={handleCloseModal}
             title="Adicionar novo cartão"
             showPrimaryButton={true}
-            primaryButtonLabel="Cadastrar cartão"
+            primaryButtonLabel={saving ? "Cadastrando..." : "Cadastrar cartão"}
             primaryButtonOnPress={handleSaveCard}
+            primaryButtonDisabled={saving}
           >
             <View style={styles.cardForm}>
               {/* Chips de tipo de cartão */}
@@ -380,8 +448,9 @@ export function PaymentMethods() {
             onClose={handleCloseModal}
             title="Editar cartão"
             showPrimaryButton={true}
-            primaryButtonLabel="Salvar alterações"
+            primaryButtonLabel={saving ? "Salvando..." : "Salvar alterações"}
             primaryButtonOnPress={handleSaveCard}
+            primaryButtonDisabled={saving}
           >
             <View style={styles.cardForm}>
               {/* Chips de tipo de cartão */}
@@ -507,9 +576,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.white,
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
   scrollView: {
     flex: 1,
   },
@@ -597,6 +663,26 @@ const styles = StyleSheet.create({
     fontWeight: fontWeights.medium,
     color: colors.black,
     lineHeight: 18,
+  },
+  loadingContainer: {
+    flex: 1,
+    padding: spacing.lg,
+  },
+  emptyContainer: {
+    flex: 1,
+    padding: spacing.lg,
+  },
+  errorContainer: {
+    backgroundColor: colors.red[50],
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+  },
+  errorText: {
+    ...typography.sm,
+    fontWeight: fontWeights.medium,
+    color: colors.red[700],
+    textAlign: 'center',
   },
 });
 

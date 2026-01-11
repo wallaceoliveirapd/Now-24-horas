@@ -61,3 +61,26 @@ Acesse a página de showcase de componentes através da home do app para ver tod
 - **Android**: `npm run android`
 - **Web**: `npm run web`
 
+## 📚 Documentação
+
+Toda a documentação do projeto está organizada na pasta [`docs/`](./docs/):
+
+- **[📋 Planejamento](./docs/planning/)** - Roadmap, planejamentos e arquitetura
+- **[🚀 Setup](./docs/setup/)** - Guias de instalação e configuração
+  - **[Variáveis de Ambiente](./docs/setup/VARIAVEIS_AMBIENTE.md)** - Configuração de variáveis de ambiente
+- **[💻 Desenvolvimento](./docs/development/)** - Checklists e guias de desenvolvimento
+- **[🔧 Backend](./docs/backend/)** - Documentação do backend
+
+Veja o [README da documentação](./docs/README.md) para mais detalhes.
+
+## ⚙️ Configuração Inicial
+
+Antes de executar o projeto, configure as variáveis de ambiente:
+
+1. Crie um arquivo `.env.local` na raiz do projeto
+2. Siga o guia em [Variáveis de Ambiente](./docs/setup/VARIAVEIS_AMBIENTE.md)
+3. Configure pelo menos:
+   - `EXPO_PUBLIC_API_URL` - URL da API backend
+   - `EXPO_PUBLIC_GOOGLE_CLIENT_ID` - Para login social com Google (opcional)
+   - `RESEND_API_KEY` - Para envio de emails (backend)
+

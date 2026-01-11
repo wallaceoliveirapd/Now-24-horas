@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -12,10 +12,18 @@ import {
   ModalBottomSheet,
   Input,
   PixIcon,
-  Chip
+  Chip,
+  EmptyState
 } from '../../../components/ui';
 import { colors, spacing, typography, fontWeights, borderRadius } from '../../lib/styles';
 import { useCart } from '../../contexts/CartContext';
+import { useAddress } from '../../contexts/AddressContext';
+import { usePaymentCard } from '../../contexts/PaymentCardContext';
+import { calculateCouponDiscount } from '../../lib/couponUtils';
+import { orderService } from '../../services/order.service';
+import { addressService } from '../../services/address.service';
+import { paymentService } from '../../services/payment.service';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   ChevronLeft, 
   MapPin, 
@@ -27,7 +35,10 @@ import {
   Plus,
   Home,
   Building2,
-  UserRound
+  UserRound,
+  Edit,
+  Trash2,
+  Star
 } from 'lucide-react-native';
 
 type RootStackParamList = {
@@ -37,25 +48,48 @@ type RootStackParamList = {
   Cupons: undefined;
   Search: undefined;
   Checkout: undefined;
+  OrderProcessing: {
+    orderNumber: string;
+    deliveryTime: string;
+    totalPaid: number;
+  };
   OrderConfirmation: {
     orderNumber: string;
     deliveryTime: string;
     totalPaid: number;
+    orderId?: string;
+    paymentError?: {
+      message: string;
+      code: string;
+    };
   };
 };
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-type PaymentMethod = 'credit_card_1' | 'credit_card_2' | 'pix';
+type PaymentMethod = string | 'pix'; // string para IDs de cartões, 'pix' para pix
 
 export function Checkout() {
   const navigation = useNavigation<NavigationProp>();
   const { items: cartItems, appliedCoupon, clearCart } = useCart();
+  const { addresses, selectedAddressId, setSelectedAddressId, addAddress, updateAddress, deleteAddress, setDefaultAddress } = useAddress();
+  const { cards: paymentCards, defaultCard, loading: cardsLoading, addCard: addPaymentCard } = usePaymentCard();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('credit_card_1');
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(
+    defaultCard?.id || paymentCards[0]?.id || 'pix'
+  );
   const [addCardModalVisible, setAddCardModalVisible] = useState(false);
   const [addressesModalVisible, setAddressesModalVisible] = useState(false);
   const [addAddressModalVisible, setAddAddressModalVisible] = useState(false);
+  const [editAddressModalVisible, setEditAddressModalVisible] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deletingAddressId, setDeletingAddressId] = useState<string | null>(null);
+  const [loadingCep, setLoadingCep] = useState(false);
   const [cardType, setCardType] = useState<'Crédito' | 'Débito'>('Crédito');
   const [addressType, setAddressType] = useState<'Casa' | 'Trabalho' | 'Outro'>('Casa');
   const [cardForm, setCardForm] = useState({
@@ -74,61 +108,67 @@ export function Checkout() {
     city: '',
     state: '',
   });
-  
-  // Lista de endereços (mockado)
-  const [addresses, setAddresses] = useState([
-    {
-      id: '1',
-      type: 'Casa' as const,
-      street: 'Rua das Flores, 123',
-      complement: 'Apto 45',
-      neighborhood: 'Centro',
-      city: 'São Paulo',
-      state: 'SP',
-      zipCode: '01234-567',
-    },
-    {
-      id: '2',
-      type: 'Trabalho' as const,
-      street: 'Rua das Flores, 123',
-      complement: 'Apto 45',
-      neighborhood: 'Centro',
-      city: 'São Paulo',
-      state: 'SP',
-      zipCode: '01234-567',
-    },
-    {
-      id: '3',
-      type: 'Outro' as const,
-      street: 'Rua das Flores, 123',
-      complement: 'Apto 45',
-      neighborhood: 'Centro',
-      city: 'São Paulo',
-      state: 'SP',
-      zipCode: '01234-567',
-    },
-  ]);
-  
-  const [selectedAddressId, setSelectedAddressId] = useState('1');
 
-  // Simular carregamento inicial
+  // Carregar dados iniciais
   useEffect(() => {
-    setTimeout(() => {
-      setLoading(false);
-    }, 500);
+    const loadData = async () => {
+      try {
+        // Aguardar carregamento de cartões
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setLoading(false);
+      } catch (error) {
+        console.error('Erro ao carregar dados:', error);
+        setLoading(false);
+      }
+    };
+    loadData();
   }, []);
 
-  // Endereço de entrega selecionado
-  const deliveryAddress = addresses.find(addr => addr.id === selectedAddressId) || addresses[0];
+  // Atualizar método de pagamento selecionado quando cartões carregarem
+  useEffect(() => {
+    if (!cardsLoading && paymentCards.length > 0 && !selectedPaymentMethod) {
+      setSelectedPaymentMethod(defaultCard?.id || paymentCards[0].id);
+    }
+  }, [cardsLoading, paymentCards, defaultCard, selectedPaymentMethod]);
 
-  // Tempo de entrega (mockado)
-  const deliveryTime = '20-40 minutos';
+  // Calcular tempo de entrega quando endereço for selecionado
+  useEffect(() => {
+    const fetchDeliveryTime = async () => {
+      if (!selectedAddressId) {
+        setDeliveryTime('20-40 minutos');
+        return;
+      }
+
+      try {
+        setLoadingDeliveryTime(true);
+        const time = await addressService.getDeliveryTime(selectedAddressId);
+        setDeliveryTime(time);
+      } catch (error) {
+        console.error('Erro ao calcular tempo de entrega:', error);
+        // Manter tempo padrão em caso de erro
+        setDeliveryTime('20-40 minutos');
+      } finally {
+        setLoadingDeliveryTime(false);
+      }
+    };
+
+    fetchDeliveryTime();
+  }, [selectedAddressId]);
+
+  // Endereço de entrega selecionado
+  const deliveryAddress = addresses.find(addr => addr.id === selectedAddressId) || addresses[0] || null;
+
+  // Tempo de entrega (calculado dinamicamente)
+  const [deliveryTime, setDeliveryTime] = useState<string>('20-40 minutos');
+  const [loadingDeliveryTime, setLoadingDeliveryTime] = useState(false);
 
   // Calcular totais
   const totals = useMemo(() => {
     const subtotal = cartItems.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
     const deliveryFee = 900; // R$9,00 em centavos
-    const discount = appliedCoupon?.discountAmount || 0;
+    const discount = appliedCoupon 
+      ? calculateCouponDiscount(appliedCoupon, subtotal, deliveryFee)
+      : 0;
     const total = subtotal + deliveryFee - discount;
     
     return {
@@ -147,32 +187,144 @@ export function Checkout() {
     }).format(value / 100);
   };
 
+  // Verificar se pode confirmar pagamento
+  const canConfirmPayment = selectedAddressId !== null && addresses.length > 0 && cartItems.length > 0 && !creatingOrder;
+
   // Confirmar pagamento
-  const handleConfirmPayment = () => {
-    // Gerar número do pedido aleatório
-    const orderNumber = `#${Math.floor(Math.random() * 1000000000)}`;
-    
-    // Navegar para tela de confirmação
-    navigation.navigate('OrderConfirmation', {
-      orderNumber,
-      deliveryTime: deliveryTime,
-      totalPaid: totals.total,
-    });
-    
-    // Limpar carrinho após confirmar pedido
-    clearCart();
+  const handleConfirmPayment = async () => {
+    if (!selectedAddressId) {
+      setError('Selecione um endereço de entrega');
+      return;
+    }
+
+    if (cartItems.length === 0) {
+      setError('Carrinho está vazio');
+      return;
+    }
+
+    try {
+      setCreatingOrder(true);
+      setError(null);
+
+      // Mapear método de pagamento
+      let metodoPagamento: 'cartao_credito' | 'cartao_debito' | 'pix';
+      let cartaoId: string | undefined;
+
+      if (selectedPaymentMethod === 'pix') {
+        metodoPagamento = 'pix';
+        cartaoId = undefined;
+      } else {
+        // Buscar cartão selecionado
+        const selectedCard = paymentCards.find(card => card.id === selectedPaymentMethod);
+        if (!selectedCard) {
+          throw new Error('Cartão selecionado não encontrado');
+        }
+        metodoPagamento = selectedCard.tipo;
+        cartaoId = selectedCard.id;
+      }
+
+      // Criar pedido
+      const response = await orderService.createOrder({
+        enderecoId: selectedAddressId,
+        metodoPagamento,
+        cartaoId,
+        observacoes: undefined,
+        instrucoesEntrega: undefined,
+      });
+
+      const order = response.pedido;
+
+      // Processar pagamento após criar pedido
+      let paymentError: any = null;
+      try {
+        // Preparar dados do pagador
+        if (!user?.email) {
+          throw new Error('Email do usuário não encontrado');
+        }
+
+        const payerData = {
+          email: user.email,
+          firstName: user.nomeCompleto?.split(' ')[0] || '',
+          lastName: user.nomeCompleto?.split(' ').slice(1).join(' ') || '',
+          identification: {
+            type: 'CPF' as const,
+            number: user.cpf?.replace(/\D/g, '') || '',
+          },
+        };
+
+        // Processar pagamento
+        if (metodoPagamento === 'pix') {
+          // Para PIX, processar pagamento e aguardar webhook
+          await paymentService.processOrderPayment(order.id, {
+            metodoPagamento: 'pix',
+            payer: payerData,
+          });
+        } else if (cartaoId) {
+          // Para cartão, precisamos do token do cartão
+          // Por enquanto, vamos processar sem token (o backend pode buscar o token do cartão salvo)
+          // TODO: Implementar busca de token do cartão salvo ou solicitar CVV
+          await paymentService.processOrderPayment(order.id, {
+            metodoPagamento,
+            cartaoId,
+            payer: payerData,
+          });
+        }
+
+        console.log('✅ Pagamento processado com sucesso');
+      } catch (err: any) {
+        console.error('⚠️  Erro ao processar pagamento:', err);
+        paymentError = err;
+      }
+
+      // Limpar carrinho
+      clearCart();
+
+      // Navegar diretamente para OrderConfirmation com informação de erro
+      navigation.navigate('OrderConfirmation', {
+        orderNumber: order.numeroPedido,
+        deliveryTime: order.tempoEntrega || '20-40 minutos',
+        totalPaid: order.total,
+        orderId: order.id,
+        paymentError: paymentError ? {
+          message: paymentError.message || 'Erro ao processar pagamento',
+          code: paymentError.code || 'PAYMENT_ERROR',
+        } : undefined,
+      });
+    } catch (err: any) {
+      console.error('Erro ao criar pedido:', err);
+      // Mensagens de erro mais específicas
+      let errorMessage = 'Erro ao criar pedido. Tente novamente.';
+      if (err.message) {
+        if (err.message.includes('Carrinho')) {
+          errorMessage = 'Seu carrinho está vazio. Adicione itens antes de finalizar.';
+        } else if (err.message.includes('Endereço')) {
+          errorMessage = 'Endereço inválido. Selecione um endereço válido.';
+        } else if (err.message.includes('Estoque')) {
+          errorMessage = 'Alguns produtos não têm estoque suficiente.';
+        } else if (err.message.includes('Cupom')) {
+          errorMessage = 'Cupom inválido ou expirado.';
+        } else if (err.message.includes('Cartão')) {
+          errorMessage = 'Cartão inválido. Verifique os dados do cartão.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      setError(errorMessage);
+      setSuccessMessage(null);
+    } finally {
+      setCreatingOrder(false);
+    }
   };
 
   // Formatar número do cartão (últimos 4 dígitos)
-  const formatCardNumber = (lastDigits: string = '1234') => {
+  const formatCardNumber = (lastDigits: string) => {
     return `****${lastDigits}`;
   };
 
-  // Dados dos cartões (usando useState para poder adicionar novos)
-  const [creditCards, setCreditCards] = useState([
-    { id: 'credit_card_1' as PaymentMethod, lastDigits: '1234' },
-    { id: 'credit_card_2' as PaymentMethod, lastDigits: '5678' },
-  ]);
+  // Formatar tipo de cartão para exibição
+  const formatCardType = (tipo: 'cartao_credito' | 'cartao_debito') => {
+    return tipo === 'cartao_credito' ? 'Cartão de crédito' : 'Cartão de débito';
+  };
 
   return (
     <>
@@ -186,11 +338,6 @@ export function Checkout() {
         edges={['top']}
       >
         <View style={{ backgroundColor: colors.gray[50], flex: 1 }}>
-        <KeyboardAvoidingView
-          style={styles.keyboardAvoidingView}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        >
           {/* Header */}
           {loading ? (
           <View style={styles.skeletonHeader}>
@@ -247,44 +394,82 @@ export function Checkout() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           >
-            {/* Endereço de entrega */}
+            {/* Endereço de entrega - sempre visível */}
             <View style={styles.sectionWrapper}>
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <MapPin size={20} color={colors.primary} strokeWidth={2} />
                   <Text style={styles.sectionTitle}>Endereço de entrega</Text>
                 </View>
-                <View style={styles.addressCard}>
-                  <Text style={styles.addressStreet}>{deliveryAddress.street}</Text>
-                  <Text style={styles.addressLine}>{deliveryAddress.complement}</Text>
-                  <Text style={styles.addressLine}>
-                    {deliveryAddress.neighborhood}, {deliveryAddress.city} - {deliveryAddress.state}
-                  </Text>
-                  <Text style={styles.addressLine}>CEP: {deliveryAddress.zipCode}</Text>
-                </View>
-                <Button
-                  title="Alterar endereço de entrega"
-                  variant="ghost"
-                  size="md"
-                  onPress={() => setAddressesModalVisible(true)}
-                  style={styles.changeAddressButton}
-                />
+                
+                {addresses.length === 0 ? (
+                  <EmptyState
+                    type="generic"
+                    icon={MapPin}
+                    title="Nenhum endereço cadastrado"
+                    description="Adicione um endereço para continuar com o pedido"
+                    actionLabel="Adicionar endereço"
+                    onActionPress={() => setAddAddressModalVisible(true)}
+                    style={styles.emptyState}
+                  />
+                ) : !selectedAddressId ? (
+                  <View style={styles.emptyAddressContainer}>
+                    <Text style={styles.emptyAddressText}>
+                      Selecione um endereço de entrega
+                    </Text>
+                    <Button
+                      title="Selecionar endereço"
+                      variant="primary"
+                      size="md"
+                      onPress={() => setAddressesModalVisible(true)}
+                      style={styles.selectAddressButton}
+                    />
+                  </View>
+                ) : deliveryAddress ? (
+                  <>
+                    <View style={styles.addressCard}>
+                      <Text style={styles.addressStreet}>{deliveryAddress.street}</Text>
+                      {deliveryAddress.complement && (
+                        <Text style={styles.addressLine}>{deliveryAddress.complement}</Text>
+                      )}
+                      <Text style={styles.addressLine}>
+                        {deliveryAddress.neighborhood}, {deliveryAddress.city} - {deliveryAddress.state}
+                      </Text>
+                      <Text style={styles.addressLine}>CEP: {deliveryAddress.zipCode}</Text>
+                    </View>
+                    <Button
+                      title="Alterar endereço de entrega"
+                      variant="ghost"
+                      size="md"
+                      onPress={() => setAddressesModalVisible(true)}
+                      style={styles.changeAddressButton}
+                    />
+                  </>
+                ) : null}
               </View>
             </View>
 
             {/* Tempo de entrega */}
-            <View style={styles.sectionWrapper}>
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <Clock size={20} color={colors.primary} strokeWidth={2} />
-                  <View style={styles.sectionHeaderContent}>
-                    <Text style={styles.sectionTitle}>Tempo de entrega</Text>
-                    <Text style={styles.deliveryTime}>{deliveryTime}</Text>
+            {selectedAddressId && (
+              <View style={styles.sectionWrapper}>
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <Clock size={20} color={colors.primary} strokeWidth={2} />
+                    <View style={styles.sectionHeaderContent}>
+                      <Text style={styles.sectionTitle}>Tempo de entrega</Text>
+                      {loadingDeliveryTime ? (
+                        <Text style={styles.deliveryTime}>Calculando...</Text>
+                      ) : (
+                        <Text style={styles.deliveryTime}>{deliveryTime}</Text>
+                      )}
+                    </View>
                   </View>
                 </View>
               </View>
-            </View>
+            )}
 
             {/* Forma de pagamento */}
             <View style={styles.sectionWrapper}>
@@ -294,8 +479,8 @@ export function Checkout() {
                 <Text style={styles.sectionTitle}>Forma de pagamento</Text>
               </View>
 
-              {/* Cartões de crédito */}
-              {creditCards.map((card) => (
+              {/* Cartões salvos */}
+              {paymentCards.map((card) => (
                 <TouchableOpacity
                   key={card.id}
                   style={[
@@ -311,11 +496,14 @@ export function Checkout() {
                       styles.paymentMethodName,
                       selectedPaymentMethod === card.id && styles.paymentMethodNameSelected
                     ]}>
-                      Cartão de crédito
+                      {formatCardType(card.tipo)}
                     </Text>
                     <Text style={styles.paymentMethodDetails}>
-                      {formatCardNumber(card.lastDigits)}
+                      {formatCardNumber(card.ultimosDigitos)}
                     </Text>
+                    {card.cartaoPadrao && (
+                      <Text style={styles.defaultCardLabel}>Padrão</Text>
+                    )}
                   </View>
                   {selectedPaymentMethod === card.id && (
                     <CircleCheck size={24} color={colors.primary} strokeWidth={2} />
@@ -415,16 +603,27 @@ export function Checkout() {
                 {formatCurrency(totals.total)}
               </Text>
             </View>
+            {error && (
+              <View style={styles.messageContainer}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+            {successMessage && (
+              <View style={[styles.messageContainer, styles.successContainer]}>
+                <Text style={styles.successText}>{successMessage}</Text>
+              </View>
+            )}
             <Button
-              title="Confirmar pagamento"
+              title={creatingOrder ? "Processando..." : "Confirmar pagamento"}
               variant="primary"
               size="lg"
               onPress={handleConfirmPayment}
+              disabled={!canConfirmPayment}
+              loading={creatingOrder}
               style={styles.confirmButton}
             />
           </View>
         )}
-        </KeyboardAvoidingView>
 
         {/* Modal Adicionar Novo Cartão */}
         <ModalBottomSheet
@@ -432,31 +631,86 @@ export function Checkout() {
           onClose={() => setAddCardModalVisible(false)}
           title="Adicionar novo cartão"
           showPrimaryButton={true}
-          primaryButtonLabel="Cadastrar cartão"
-          primaryButtonOnPress={() => {
-            // Aqui você pode validar e salvar o cartão
-            console.log('Cadastrar cartão', cardForm);
-            // Gerar últimos 4 dígitos do número do cartão (remover espaços)
-            const cardNumberDigits = cardForm.cardNumber.replace(/\s/g, '');
-            const lastDigits = cardNumberDigits.slice(-4) || '0000';
-            // Adicionar novo cartão à lista
-            const newCardId = `credit_card_${creditCards.length + 1}` as PaymentMethod;
-            setCreditCards([...creditCards, {
-              id: newCardId,
-              lastDigits: lastDigits,
-            }]);
-            // Selecionar o novo cartão
-            setSelectedPaymentMethod(newCardId);
-            setAddCardModalVisible(false);
-            // Resetar formulário
-            setCardForm({
-              cardNumber: '',
-              cardName: '',
-              expiryDate: '',
-              cvv: '',
-              cpf: '',
-            });
+          primaryButtonLabel={creatingOrder ? "Cadastrando..." : "Cadastrar cartão"}
+          primaryButtonOnPress={async () => {
+            // Validações
+            if (!cardForm.cardNumber || cardForm.cardNumber.replace(/\s/g, '').length < 13) {
+              setError('Número do cartão inválido');
+              return;
+            }
+            if (!cardForm.cardName) {
+              setError('Nome do titular é obrigatório');
+              return;
+            }
+            if (!cardForm.expiryDate || cardForm.expiryDate.length < 5) {
+              setError('Data de validade inválida');
+              return;
+            }
+            if (!cardForm.cvv || cardForm.cvv.length < 3) {
+              setError('CVV inválido');
+              return;
+            }
+            if (!cardForm.cpf || cardForm.cpf.replace(/\D/g, '').length < 11) {
+              setError('CPF inválido');
+              return;
+            }
+
+            try {
+              setCreatingOrder(true);
+              setError(null);
+
+              // Extrair mês e ano da validade
+              const [month, year2Digits] = cardForm.expiryDate.split('/');
+              // Converter ano de 2 dígitos para 4 dígitos
+              const currentYear = new Date().getFullYear();
+              const currentCentury = Math.floor(currentYear / 100) * 100;
+              const year4Digits = currentCentury + parseInt(year2Digits);
+              
+              // Garantir que o mês tenha 2 dígitos
+              const monthFormatted = month.padStart(2, '0');
+              
+              const cardNumberDigits = cardForm.cardNumber.replace(/\s/g, '');
+              const cpfDigits = cardForm.cpf.replace(/\D/g, '');
+
+              // Adicionar cartão via backend
+              const newCard = await addPaymentCard({
+                cardNumber: cardNumberDigits,
+                cardholderName: cardForm.cardName,
+                cardExpirationMonth: monthFormatted,
+                cardExpirationYear: year4Digits.toString(),
+                securityCode: cardForm.cvv,
+                identificationType: 'CPF',
+                identificationNumber: cpfDigits,
+              });
+
+              // Selecionar o novo cartão
+              setSelectedPaymentMethod(newCard.id);
+              setAddCardModalVisible(false);
+              
+              // Resetar formulário
+              setCardForm({
+                cardNumber: '',
+                cardName: '',
+                expiryDate: '',
+                cvv: '',
+                cpf: '',
+              });
+              setCardType('Crédito');
+              
+              // Feedback de sucesso
+              setSuccessMessage('Cartão adicionado com sucesso!');
+              setError(null);
+              setTimeout(() => setSuccessMessage(null), 3000);
+            } catch (err: any) {
+              console.error('Erro ao cadastrar cartão:', err);
+              const errorMessage = err.message || 'Erro ao cadastrar cartão. Tente novamente.';
+              setError(errorMessage);
+              setSuccessMessage(null);
+            } finally {
+              setCreatingOrder(false);
+            }
           }}
+          primaryButtonDisabled={creatingOrder}
         >
           <View style={styles.cardForm}>
             {/* Chips de tipo de cartão */}
@@ -581,12 +835,13 @@ export function Checkout() {
           primaryButtonLabel="Adicionar novo endereço"
           primaryButtonOnPress={() => {
             setAddressesModalVisible(false);
-            setAddAddressModalVisible(true);
+            setTimeout(() => setAddAddressModalVisible(true), 300);
           }}
         >
           <View style={styles.addressesList}>
             {addresses.map((address) => {
               const isSelected = address.id === selectedAddressId;
+              const isDefault = address.isDefault || false;
               const getIcon = () => {
                 if (address.type === 'Casa') return <Home size={20} color={isSelected ? colors.primary : colors.black} strokeWidth={2} />;
                 if (address.type === 'Trabalho') return <Building2 size={20} color={isSelected ? colors.primary : colors.black} strokeWidth={2} />;
@@ -594,41 +849,154 @@ export function Checkout() {
               };
               
               return (
-                <TouchableOpacity
-                  key={address.id}
-                  style={[
-                    styles.addressItem,
-                    isSelected && styles.addressItemSelected
-                  ]}
-                  onPress={() => {
-                    setSelectedAddressId(address.id);
-                    setAddressesModalVisible(false);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.addressItemContent}>
-                    <View style={styles.addressItemHeader}>
-                      {getIcon()}
-                      <Text style={styles.addressItemType}>{address.type}</Text>
+                <View key={address.id} style={[
+                  styles.addressItemContainer,
+                  isSelected && styles.addressItemContainerSelected
+                ]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.addressItem,
+                      isSelected && styles.addressItemSelected
+                    ]}
+                    onPress={() => {
+                      setSelectedAddressId(address.id);
+                      setAddressesModalVisible(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.addressItemContent}>
+                      <View style={styles.addressItemHeader}>
+                        {getIcon()}
+                        <Text style={styles.addressItemType}>{address.type}</Text>
+                        {isDefault && (
+                          <View style={styles.defaultBadge}>
+                            <Star size={12} color={colors.primary} fill={colors.primary} />
+                            <Text style={styles.defaultBadgeText}>Padrão</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.addressItemText}>
+                        {address.street}{address.complement ? `, ${address.complement}` : ''}, {address.neighborhood}, {address.city} - {address.state}, CEP: {address.zipCode}
+                      </Text>
                     </View>
-                    <Text style={styles.addressItemText}>
-                      {address.street}, {address.complement}, {address.neighborhood}, {address.city} - {address.state}, CEP: {address.zipCode}
-                    </Text>
+                    {isSelected && (
+                      <CircleCheck size={24} color={colors.primary} strokeWidth={2} />
+                    )}
+                  </TouchableOpacity>
+                  
+                  {/* Botões de ação */}
+                  <View style={styles.addressItemActions}>
+                    {!isDefault && (
+                      <TouchableOpacity
+                        style={styles.addressActionButton}
+                        onPress={async () => {
+                          try {
+                            await setDefaultAddress(address.id);
+                            setSuccessMessage('Endereço definido como padrão!');
+                            setError(null);
+                            setTimeout(() => setSuccessMessage(null), 3000);
+                          } catch (err: any) {
+                            console.error('Erro ao definir endereço padrão:', err);
+                            setError(err.message || 'Erro ao definir endereço padrão');
+                            setSuccessMessage(null);
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Star size={18} color={colors.primary} />
+                        <Text style={styles.addressActionText}>Padrão</Text>
+                      </TouchableOpacity>
+                    )}
+                    
+                    <TouchableOpacity
+                      style={styles.addressActionButton}
+                      onPress={() => {
+                        const addressToEdit = addresses.find(addr => addr.id === address.id);
+                        if (!addressToEdit) return;
+
+                        // Separar rua e número
+                        const [street, ...numberParts] = addressToEdit.street.split(', ');
+                        const number = numberParts.join(', ') || '';
+
+                        setEditingAddressId(address.id);
+                        setAddressType(addressToEdit.type);
+                        setAddressForm({
+                          cep: addressToEdit.zipCode,
+                          street: street,
+                          number: number,
+                          complement: addressToEdit.complement || '',
+                          neighborhood: addressToEdit.neighborhood,
+                          city: addressToEdit.city,
+                          state: addressToEdit.state,
+                        });
+                        setAddressesModalVisible(false);
+                        setTimeout(() => {
+                          setEditAddressModalVisible(true);
+                        }, 300);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Edit size={18} color={colors.primary} />
+                      <Text style={styles.addressActionText}>Editar</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.addressActionButton,
+                        styles.addressActionButtonDanger,
+                        deletingAddressId === address.id && { backgroundColor: colors.error }
+                      ]}
+                      onPress={async () => {
+                        if (addresses.length === 1) {
+                          setError('Você precisa ter pelo menos um endereço cadastrado');
+                          return;
+                        }
+
+                        // Confirmação simples (pode melhorar com Alert.alert)
+                        if (deletingAddressId === address.id) {
+                          try {
+                            setDeletingAddressId(address.id);
+                            await deleteAddress(address.id);
+                            setDeletingAddressId(null);
+                            setSuccessMessage('Endereço deletado com sucesso!');
+                            setError(null);
+                            setTimeout(() => setSuccessMessage(null), 3000);
+                          } catch (err: any) {
+                            console.error('Erro ao deletar endereço:', err);
+                            setError(err.message || 'Erro ao deletar endereço');
+                            setSuccessMessage(null);
+                            setDeletingAddressId(null);
+                          }
+                        } else {
+                          setDeletingAddressId(address.id);
+                          // Reset após 3 segundos se não confirmar
+                          setTimeout(() => setDeletingAddressId(null), 3000);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Trash2 size={18} color={deletingAddressId === address.id ? colors.white : colors.error} />
+                      <Text style={[
+                        styles.addressActionText,
+                        deletingAddressId === address.id && styles.addressActionTextDanger
+                      ]}>
+                        {deletingAddressId === address.id ? 'Confirmar' : 'Deletar'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
-                  {isSelected && (
-                    <CircleCheck size={24} color={colors.primary} strokeWidth={2} />
-                  )}
-                </TouchableOpacity>
+                </View>
               );
             })}
           </View>
         </ModalBottomSheet>
 
-        {/* Modal Adicionar Endereço */}
+        {/* Modal Adicionar/Editar Endereço */}
         <ModalBottomSheet
-          visible={addAddressModalVisible}
+          visible={addAddressModalVisible || editAddressModalVisible}
           onClose={() => {
             setAddAddressModalVisible(false);
+            setEditAddressModalVisible(false);
+            setEditingAddressId(null);
             setAddressForm({
               cep: '',
               street: '',
@@ -639,35 +1007,110 @@ export function Checkout() {
               state: '',
             });
             setAddressType('Casa');
+            setError(null);
           }}
-          title="Adicionar novo endereço"
+          title={editingAddressId ? "Editar endereço" : "Adicionar novo endereço"}
           showPrimaryButton={true}
-          primaryButtonLabel="Adicionar novo endereço"
-          primaryButtonOnPress={() => {
-            const newAddress = {
-              id: String(addresses.length + 1),
-              type: addressType,
-              street: addressForm.street,
-              complement: addressForm.complement,
-              neighborhood: addressForm.neighborhood,
-              city: addressForm.city,
-              state: addressForm.state,
-              zipCode: addressForm.cep,
-            };
-            setAddresses([...addresses, newAddress]);
-            setSelectedAddressId(newAddress.id);
-            setAddAddressModalVisible(false);
-            setAddressForm({
-              cep: '',
-              street: '',
-              number: '',
-              complement: '',
-              neighborhood: '',
-              city: '',
-              state: '',
-            });
-            setAddressType('Casa');
+          primaryButtonLabel={saving ? "Salvando..." : (editingAddressId ? "Salvar alterações" : "Adicionar novo endereço")}
+          primaryButtonOnPress={async () => {
+            // Validações
+            if (!addressForm.cep || addressForm.cep.replace(/\D/g, '').length < 8) {
+              setError('CEP inválido');
+              return;
+            }
+            if (!addressForm.street) {
+              setError('Rua é obrigatória');
+              return;
+            }
+            if (!addressForm.number || addressForm.number.trim() === '') {
+              setError('Número é obrigatório');
+              return;
+            }
+            if (!addressForm.neighborhood) {
+              setError('Bairro é obrigatório');
+              return;
+            }
+            if (!addressForm.city) {
+              setError('Cidade é obrigatória');
+              return;
+            }
+            if (!addressForm.state || addressForm.state.length < 2) {
+              setError('Estado é obrigatório');
+              return;
+            }
+
+            try {
+              setSaving(true);
+              setError(null);
+
+              const streetWithNumber = addressForm.street + (addressForm.number ? `, ${addressForm.number}` : '');
+              
+              // Garantir que estado está em maiúsculas
+              const estadoFormatado = addressForm.state.toUpperCase().slice(0, 2);
+
+              if (editingAddressId) {
+                // Atualizar endereço existente
+                await updateAddress(editingAddressId, {
+                  type: addressType,
+                  street: streetWithNumber,
+                  complement: addressForm.complement || '',
+                  neighborhood: addressForm.neighborhood,
+                  city: addressForm.city,
+                  state: estadoFormatado,
+                  zipCode: addressForm.cep,
+                });
+                setEditAddressModalVisible(false);
+              } else {
+                // Adicionar novo endereço
+                await addAddress({
+                  type: addressType,
+                  street: streetWithNumber,
+                  complement: addressForm.complement || '',
+                  neighborhood: addressForm.neighborhood,
+                  city: addressForm.city,
+                  state: estadoFormatado,
+                  zipCode: addressForm.cep,
+                });
+                setAddAddressModalVisible(false);
+              }
+
+              // Resetar formulário
+              setEditingAddressId(null);
+              setAddressForm({
+                cep: '',
+                street: '',
+                number: '',
+                complement: '',
+                neighborhood: '',
+                city: '',
+                state: '',
+              });
+              setAddressType('Casa');
+              
+              // Feedback de sucesso
+              setSuccessMessage(editingAddressId ? 'Endereço atualizado com sucesso!' : 'Endereço adicionado com sucesso!');
+              setError(null);
+              setTimeout(() => setSuccessMessage(null), 3000);
+            } catch (err: any) {
+              console.error('Erro ao salvar endereço:', err);
+              // Mensagens de erro mais específicas
+              let errorMessage = 'Erro ao salvar endereço. Tente novamente.';
+              if (err.message) {
+                if (err.message.includes('CEP')) {
+                  errorMessage = 'CEP inválido. Verifique o CEP informado.';
+                } else if (err.message.includes('endereço')) {
+                  errorMessage = err.message;
+                } else {
+                  errorMessage = err.message;
+                }
+              }
+              setError(errorMessage);
+              setSuccessMessage(null);
+            } finally {
+              setSaving(false);
+            }
           }}
+          primaryButtonDisabled={saving}
         >
           <View style={styles.addressForm}>
             {/* Chips de tipo de endereço */}
@@ -709,6 +1152,7 @@ export function Checkout() {
                   const cepDigits = formatted.replace(/\D/g, '');
                   if (cepDigits.length === 8) {
                     try {
+                      setLoadingCep(true);
                       const response = await fetch(`https://viacep.com.br/ws/${cepDigits}/json/`);
                       const data = await response.json();
                       
@@ -721,16 +1165,21 @@ export function Checkout() {
                           city: data.localidade || '',
                           state: data.uf || '',
                         });
+                      } else {
+                        setError('CEP não encontrado');
                       }
                     } catch (error) {
                       console.error('Erro ao buscar CEP:', error);
+                      setError('Erro ao buscar CEP. Tente novamente.');
+                    } finally {
+                      setLoadingCep(false);
                     }
                   }
                 }}
                 keyboardType="numeric"
                 maxLength={9}
-                state="Default"
-                showSearchIcon={false}
+                state={loadingCep ? "Loading" : "Default"}
+                showSearchIcon={loadingCep}
               />
             </View>
 
@@ -953,6 +1402,12 @@ const styles = StyleSheet.create({
   addressesList: {
     gap: spacing.md,
   },
+  addressItemContainer: {
+    gap: spacing.sm,
+  },
+  addressItemContainerSelected: {
+    // Estilo adicional se necessário
+  },
   addressItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -986,6 +1441,47 @@ const styles = StyleSheet.create({
     fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
     lineHeight: 18.2, // 1.3 * 14px
+  },
+  addressItemActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  addressActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.gray[100],
+  },
+  addressActionButtonDanger: {
+    // Background será aplicado dinamicamente no componente
+  },
+  addressActionText: {
+    ...typography.xs,
+    fontWeight: fontWeights.medium,
+    color: colors.primary,
+  },
+  addressActionTextDanger: {
+    color: colors.white,
+  },
+  defaultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs / 2,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: borderRadius.sm,
+    backgroundColor: 'rgba(230, 28, 97, 0.1)',
+  },
+  defaultBadgeText: {
+    ...typography.xs,
+    fontWeight: fontWeights.semibold,
+    color: colors.primary,
   },
   addressForm: {
     gap: spacing.md,
@@ -1098,8 +1594,49 @@ const styles = StyleSheet.create({
     color: colors.black,
     lineHeight: 18,
   },
-  keyboardAvoidingView: {
-    flex: 1,
+  emptyState: {
+    minHeight: 200,
+  },
+  emptyAddressContainer: {
+    padding: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  emptyAddressText: {
+    ...typography.base,
+    fontWeight: fontWeights.normal,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+  },
+  selectAddressButton: {
+    marginTop: spacing.sm,
+  },
+  messageContainer: {
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.sm,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  },
+  errorText: {
+    ...typography.sm,
+    fontWeight: fontWeights.medium,
+    color: colors.error || '#dc2626',
+    textAlign: 'center',
+  },
+  successContainer: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+  },
+  successText: {
+    ...typography.sm,
+    fontWeight: fontWeights.medium,
+    color: '#16a34a',
+    textAlign: 'center',
+  },
+  defaultCardLabel: {
+    ...typography.xs,
+    fontWeight: fontWeights.medium,
+    color: colors.primary,
+    marginTop: spacing.xs,
   },
 });
 

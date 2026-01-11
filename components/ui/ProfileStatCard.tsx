@@ -19,7 +19,7 @@ export function ProfileStatCard({
 
   return (
     <View style={containerStyle}>
-      <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit minimumScaleFactor={0.8}>
+      <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
       <Text style={styles.label}>{label}</Text>

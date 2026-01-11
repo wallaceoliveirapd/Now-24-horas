@@ -12,7 +12,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -33,7 +34,21 @@
           "photosPermission": "O aplicativo precisa acessar suas fotos para alterar a foto de perfil.",
           "cameraPermission": "O aplicativo precisa acessar a câmera para tirar uma foto de perfil."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#ffffff",
+          "sounds": [],
+          "mode": "production"
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "your-expo-project-id"
+      }
+    }
   }
 }

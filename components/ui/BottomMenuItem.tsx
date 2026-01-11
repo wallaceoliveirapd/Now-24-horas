@@ -19,7 +19,6 @@ export function BottomMenuItem({
 }: BottomMenuItemProps) {
   const containerStyle = combineStyles(
     styles.container,
-    active && styles.containerActive,
     style
   );
 
@@ -28,8 +27,8 @@ export function BottomMenuItem({
     active ? styles.textActive : styles.textInactive
   );
 
-  const iconColor = active ? colors.primary : colors.black;
-  const iconSize = 18;
+  const iconColor = active ? colors.primary : colors.mutedForeground;
+  const iconSize = 16;
 
   const content = (
     <View style={containerStyle}>
@@ -37,7 +36,7 @@ export function BottomMenuItem({
         <Icon 
           size={iconSize} 
           color={iconColor} 
-          strokeWidth={active ? 2.5 : 2}
+          strokeWidth={2}
           fill="none"
         />
       </View>
@@ -64,7 +63,7 @@ export function BottomMenuItem({
 
 const styles = StyleSheet.create({
   touchable: {
-    width: 98,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -74,10 +73,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.xs, // 4px
     padding: 0,
-    transform: [{ translateY: -19 }], // -50% of 38px height
-  },
-  containerActive: {
-    // Mesmo estilo, mas o texto e ícone mudam de cor
   },
   iconContainer: {
     width: 18,
@@ -86,18 +81,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   text: {
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 16,
     fontFamily: typography.sm.fontFamily,
     fontWeight: fontWeights.medium,
     textAlign: 'center',
-    width: '100%',
   },
   textActive: {
     color: colors.primary,
   },
   textInactive: {
-    color: colors.black,
+    color: colors.mutedForeground,
   },
 });
-

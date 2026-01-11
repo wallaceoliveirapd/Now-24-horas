@@ -7,8 +7,10 @@ import { useState, useRef } from 'react';
 import { Button, ProfileHeader, ProfileStats, ProfileMenu, ProfileFooter } from '../../../components/ui';
 import { colors, spacing } from '../../lib/styles';
 import { MapPin, CreditCard, Heart, Settings, HelpCircle } from 'lucide-react-native';
+import { useAuth } from '../../contexts/AuthContext';
 
 type RootStackParamList = {
+  Login: undefined;
   Home: undefined;
   ComponentShowcase: undefined;
   Cart: undefined;
@@ -47,6 +49,7 @@ interface MenuItem {
 
 export function Profile() {
   const navigation = useNavigation<NavigationProp>();
+  const { logout } = useAuth();
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [headerHeight, setHeaderHeight] = useState(0);
   const headerRef = useRef<View>(null);
@@ -181,8 +184,11 @@ export function Profile() {
                 variant="outline"
                 size="lg"
                 onPress={() => {
-                  // TODO: Implementar logout
-                  console.log('Sair da conta');
+                  logout();
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Login' }],
+                  });
                 }}
                 style={styles.logoutButton}
               />

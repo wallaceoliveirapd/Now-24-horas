@@ -1,17 +1,24 @@
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   PageTitle,
   Banner,
   SectionTitle,
-  CupomCard
+  CupomCard,
+  Skeleton,
+  EmptyState,
+  Toast
 } from '../../../components/ui';
 import { colors, spacing } from '../../lib/styles';
-import { useCart } from '../../contexts/CartContext';
+import { useCart, AppliedCoupon } from '../../contexts/CartContext';
+import { validateCoupon } from '../../lib/couponUtils';
+import { couponService, BackendCoupon } from '../../services/coupon.service';
+import { getErrorMessage } from '../../lib/errorMessages';
+import { useAuth } from '../../contexts/AuthContext';
 
 type RootStackParamList = {
   Home: undefined;
@@ -22,50 +29,122 @@ type RootStackParamList = {
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-interface Cupom {
-  id: string;
-  discountValue: string;
-  description: string;
-  conditions: string;
-  validUntil: string;
-  couponCode: string;
-  discountAmount: number; // em centavos
+/**
+ * Converter cupom do backend para formato do frontend
+ */
+function convertBackendToAppliedCoupon(backendCoupon: BackendCoupon): AppliedCoupon {
+  // Formatar valor de desconto
+  const discountValue = backendCoupon.tipoDesconto === 'fixo'
+    ? `R$ ${(backendCoupon.valorDesconto / 100).toFixed(2).replace('.', ',')} OFF`
+    : `${backendCoupon.valorDesconto}% OFF`;
+
+  // Formatar data de validade
+  const formatDate = (date: string | Date | undefined): string => {
+    if (!date) return '';
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return dateObj.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
+  const validUntil = formatDate(backendCoupon.validoAte);
+  const validUntilText = validUntil ? `Válido até ${validUntil}` : '';
+
+  // Construir texto de condições
+  const conditionsParts: string[] = [];
+  
+  if (backendCoupon.valorMinimoPedido) {
+    const minValue = (backendCoupon.valorMinimoPedido / 100).toFixed(2).replace('.', ',');
+    conditionsParts.push(`Válido para pedidos acima de R$ ${minValue}`);
+  }
+  
+  if (backendCoupon.tipoDesconto === 'percentual' && backendCoupon.valorMaximoDesconto) {
+    const maxDiscount = (backendCoupon.valorMaximoDesconto / 100).toFixed(2).replace('.', ',');
+    conditionsParts.push(`Máximo de R$ ${maxDiscount} de desconto`);
+  }
+  
+  if (!backendCoupon.descontoEntrega) {
+    conditionsParts.push('Entrega não inclui desconto');
+  }
+  
+  if (backendCoupon.entregaObrigatoria) {
+    conditionsParts.push('Apenas para pedidos com entrega');
+  }
+
+  const conditions = conditionsParts.length > 0 
+    ? conditionsParts.join('. ') + '.'
+    : validUntilText;
+
+  // Mapear condições do cupom
+  const couponConditions = {
+    minOrderValue: backendCoupon.valorMinimoPedido,
+    maxDiscountValue: backendCoupon.valorMaximoDesconto,
+    deliveryNotIncluded: !backendCoupon.descontoEntrega,
+    deliveryRequired: backendCoupon.entregaObrigatoria,
+  };
+
+  return {
+    id: backendCoupon.id,
+    discountValue,
+    description: backendCoupon.descricao || '',
+    conditions,
+    validUntil: validUntilText,
+    couponCode: backendCoupon.codigo,
+    discountType: backendCoupon.tipoDesconto,
+    discountAmount: backendCoupon.valorDesconto,
+    couponConditions,
+  };
 }
 
 export function Cupons() {
   const navigation = useNavigation<NavigationProp>();
-  const { appliedCoupon, setAppliedCoupon } = useCart();
+  const { isAuthenticated } = useAuth();
+  const { appliedCoupon, applyCoupon, removeCoupon, items: cartItems } = useCart();
   
-  // Lista de cupons disponíveis
-  const [availableCoupons] = useState<Cupom[]>([
-    {
-      id: '1',
-      discountValue: 'R$ 20 OFF',
-      description: 'Ganhe 20% de desconto na primeira compra',
-      conditions: 'Válido para pedidos acima de R$ 50,00',
-      validUntil: 'Válido até 30/12/2025',
-      couponCode: 'BEMVINDO10',
-      discountAmount: 2000, // R$ 20,00
-    },
-    {
-      id: '2',
-      discountValue: 'R$ 15 OFF',
-      description: 'Desconto especial para novos clientes',
-      conditions: 'Válido para pedidos acima de R$ 30,00',
-      validUntil: 'Válido até 31/12/2025',
-      couponCode: 'NOVO15',
-      discountAmount: 1500, // R$ 15,00
-    },
-    {
-      id: '3',
-      discountValue: 'R$ 10 OFF',
-      description: 'Cupom de desconto para qualquer pedido',
-      conditions: 'Válido para pedidos acima de R$ 20,00',
-      validUntil: 'Válido até 15/01/2026',
-      couponCode: 'DESCONTO10',
-      discountAmount: 1000, // R$ 10,00
-    },
-  ]);
+  const [loading, setLoading] = useState(true);
+  const [applyingCoupon, setApplyingCoupon] = useState<string | null>(null);
+  const [availableCoupons, setAvailableCoupons] = useState<AppliedCoupon[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'error' | 'success' | 'info'>('error');
+  
+  // Carregar cupons do backend
+  const loadCoupons = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      setAvailableCoupons([]);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const backendCoupons = await couponService.getAvailableCoupons();
+      const convertedCoupons = backendCoupons.map(convertBackendToAppliedCoupon);
+      
+      setAvailableCoupons(convertedCoupons);
+    } catch (err: any) {
+      console.error('Erro ao carregar cupons:', err);
+      const errorMessage = getErrorMessage(err.code || 'UNKNOWN_ERROR');
+      setError(errorMessage);
+      setAvailableCoupons([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  // Carregar cupons ao montar componente e quando a tela recebe foco
+  // Isso garante que cupons usados sejam ocultados após finalizar pedido
+  useFocusEffect(
+    useCallback(() => {
+      loadCoupons();
+    }, [loadCoupons])
+  );
 
   // Contar total de cupons
   const totalCoupons = availableCoupons.length;
@@ -75,33 +154,94 @@ export function Cupons() {
     return appliedCoupon?.id === couponId;
   };
 
-  // Aplicar cupom
-  const handleUseCoupon = (coupon: Cupom) => {
-    setAppliedCoupon(coupon);
-    // Navegar de volta após aplicar
-    setTimeout(() => {
-      navigation.goBack();
-    }, 300);
+  // Mostrar toast
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
   };
+
+  // Aplicar cupom
+  const handleUseCoupon = useCallback(async (coupon: AppliedCoupon) => {
+    if (applyingCoupon) return; // Evitar múltiplas aplicações simultâneas
+
+    try {
+      setApplyingCoupon(coupon.id);
+      
+      // Calcular subtotal do carrinho
+      const subtotal = cartItems.reduce((sum, item) => sum + (item.finalPrice * item.quantity), 0);
+      const deliveryFee = 900; // R$ 9,00 em centavos
+      const hasDelivery = true; // Por enquanto assumimos que sempre tem entrega
+      
+      // Validar cupom localmente primeiro (opcional, mas melhora UX)
+      const localValidation = validateCoupon(coupon, cartItems, deliveryFee, hasDelivery);
+      
+      if (!localValidation.isValid) {
+        showToast(localValidation.errorMessage || 'Cupom não pode ser aplicado', 'error');
+        setApplyingCoupon(null);
+        return;
+      }
+
+      // Validar cupom no backend (recomendado)
+      try {
+        await couponService.validateCoupon(coupon.couponCode, subtotal + deliveryFee);
+      } catch (validationError: any) {
+        const errorMessage = getErrorMessage(validationError.code || 'INVALID_COUPON');
+        showToast(errorMessage, 'error');
+        setApplyingCoupon(null);
+        return;
+      }
+
+      // Aplicar cupom via CartContext
+      await applyCoupon(coupon.couponCode);
+      
+      showToast('Cupom aplicado com sucesso!', 'success');
+      
+      // Navegar de volta após aplicar
+      setTimeout(() => {
+        navigation.goBack();
+      }, 1000);
+    } catch (err: any) {
+      console.error('Erro ao aplicar cupom:', err);
+      const errorMessage = getErrorMessage(err.code || 'UNKNOWN_ERROR');
+      showToast(errorMessage, 'error');
+    } finally {
+      setApplyingCoupon(null);
+    }
+  }, [applyingCoupon, cartItems, applyCoupon, navigation]);
 
   // Remover cupom
-  const handleRemoveCoupon = (couponId: string) => {
+  const handleRemoveCoupon = useCallback(async (couponId: string) => {
     if (appliedCoupon?.id === couponId) {
-      setAppliedCoupon(null);
+      try {
+        await removeCoupon();
+        showToast('Cupom removido com sucesso', 'success');
+      } catch (err: any) {
+        console.error('Erro ao remover cupom:', err);
+        const errorMessage = getErrorMessage(err.code || 'UNKNOWN_ERROR');
+        showToast(errorMessage, 'error');
+      }
     }
-  };
+  }, [appliedCoupon, removeCoupon]);
 
   // Copiar código do cupom
-  const handleCopyCode = (code: string) => {
-    // Aqui você pode implementar a funcionalidade de copiar para clipboard
-    console.log('Copiar código:', code);
-  };
+  const handleCopyCode = useCallback((code: string) => {
+    // Por enquanto apenas logar, pode ser implementado com expo-clipboard depois
+    console.log('Código do cupom:', code);
+    showToast(`Código: ${code}`, 'info');
+  }, []);
 
   return (
     <>
       <StatusBar 
         style="dark"
         backgroundColor={colors.white}
+      />
+      <Toast
+        visible={toastVisible}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setToastVisible(false)}
       />
       <SafeAreaView 
         style={[styles.safeArea, { backgroundColor: colors.white }]} 
@@ -141,26 +281,50 @@ export function Cupons() {
             />
 
             {/* Cupons List */}
-            <View style={styles.cuponsList}>
-              {availableCoupons.map((coupon) => {
-                const isSelected = isCouponSelected(coupon.id);
-                return (
-                  <CupomCard
-                    key={coupon.id}
-                    state={isSelected ? 'Selected' : 'Default'}
-                    discountValue={coupon.discountValue}
-                    description={coupon.description}
-                    conditions={coupon.conditions}
-                    validUntil={coupon.validUntil}
-                    couponCode={coupon.couponCode}
-                    onUse={() => handleUseCoupon(coupon)}
-                    onRemove={() => handleRemoveCoupon(coupon.id)}
-                    onCopyCode={() => handleCopyCode(coupon.couponCode)}
-                    style={styles.cupomCard}
-                  />
-                );
-              })}
-            </View>
+            {loading ? (
+              <View style={styles.cuponsList}>
+                {[1, 2, 3].map((i) => (
+                  <View key={i} style={styles.skeletonCard}>
+                    <Skeleton width="100%" height={140} borderRadius={8} />
+                  </View>
+                ))}
+              </View>
+            ) : error ? (
+              <EmptyState
+                type="generic"
+                title="Erro ao carregar cupons"
+                description={error}
+              />
+            ) : availableCoupons.length === 0 ? (
+              <EmptyState
+                type="generic"
+                title="Nenhum cupom disponível"
+                description="Novos cupons aparecerão aqui quando estiverem disponíveis"
+              />
+            ) : (
+              <View style={styles.cuponsList}>
+                {availableCoupons.map((coupon) => {
+                  const isSelected = isCouponSelected(coupon.id);
+                  const isApplying = applyingCoupon === coupon.id;
+                  
+                  return (
+                    <CupomCard
+                      key={coupon.id}
+                      state={isSelected ? 'Selected' : 'Default'}
+                      discountValue={coupon.discountValue}
+                      description={coupon.description}
+                      conditions={coupon.conditions}
+                      validUntil={coupon.validUntil}
+                      couponCode={coupon.couponCode}
+                      onUse={() => !isApplying && handleUseCoupon(coupon)}
+                      onRemove={() => handleRemoveCoupon(coupon.id)}
+                      onCopyCode={() => handleCopyCode(coupon.couponCode)}
+                      style={styles.cupomCard}
+                    />
+                  );
+                })}
+              </View>
+            )}
           </View>
         </ScrollView>
         </View>
@@ -197,5 +361,7 @@ const styles = StyleSheet.create({
   cupomCard: {
     width: '100%',
   },
+  skeletonCard: {
+    marginTop: spacing.md,
+  },
 });
-
