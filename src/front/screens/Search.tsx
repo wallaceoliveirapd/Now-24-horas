@@ -854,11 +854,11 @@ const styles = StyleSheet.create({
   },
   chipsContainer: {
     gap: spacing.md - 4, // 12px
-    paddingLeft: spacing.lg, // 20px padding no início
-    paddingRight: spacing.lg,
+    paddingLeft: spacing.md, // 16px padding no início
+    paddingRight: spacing.md,
   },
   chipsScroll: {
-    marginHorizontal: -spacing.lg, // Compensar padding do header
+    marginHorizontal: -spacing.md, // Compensar padding do header
   },
   chip: {
     marginLeft: 0,
@@ -945,7 +945,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm + 2,
     marginBottom: spacing.lg,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.md,
   },
   skeletonSectionTitle: {
     marginBottom: spacing.md,
@@ -972,7 +972,7 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     flex: 1,
-    padding: spacing.lg,
+    padding: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 200,
