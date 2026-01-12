@@ -1,33 +1,53 @@
-import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator } from 'react-native';
+import { useState, useEffect } from 'react';
 import { AppNavigator } from './src/front/navigation/AppNavigator';
 import { useAppFonts } from './src/hooks/useFonts';
-import { colors } from './src/lib/styles';
 import { CartProvider } from './src/contexts/CartContext';
 import { AddressProvider } from './src/contexts/AddressContext';
 import { PaymentCardProvider } from './src/contexts/PaymentCardContext';
-import { AuthProvider } from './src/contexts/AuthContext';
+import { AuthProvider, useAuth } from './src/contexts/AuthContext';
+import { SplashScreen } from './src/front/screens/SplashScreen';
+
+// Componente interno que verifica se o AuthContext terminou de carregar
+function AppContent() {
+  const { loading: authLoading } = useAuth();
+  const [minSplashTimePassed, setMinSplashTimePassed] = useState(false);
+
+  // Minimum splash screen duration (2 seconds)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMinSplashTimePassed(true);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Mostrar splash enquanto AuthContext está carregando ou tempo mínimo não passou
+  if (authLoading || !minSplashTimePassed) {
+    return <SplashScreen />;
+  }
+
+  return (
+    <CartProvider>
+      <AddressProvider>
+        <PaymentCardProvider>
+          <AppNavigator />
+        </PaymentCardProvider>
+      </AddressProvider>
+    </CartProvider>
+  );
+}
 
 export default function App() {
   const { fontsLoaded } = useAppFonts();
 
+  // Mostrar splash enquanto fontes não carregaram
   if (!fontsLoaded) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.white }}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
+    return <SplashScreen />;
   }
 
   return (
     <AuthProvider>
-      <CartProvider>
-        <AddressProvider>
-          <PaymentCardProvider>
-            <AppNavigator />
-          </PaymentCardProvider>
-        </AddressProvider>
-      </CartProvider>
+      <AppContent />
     </AuthProvider>
   );
 }

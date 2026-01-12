@@ -1,6 +1,6 @@
 import { View, StyleSheet, ViewStyle, Animated } from 'react-native';
 import { useEffect, useRef } from 'react';
-import { Check, Box, Bike, Smile } from 'lucide-react-native';
+import { Check, Box, Bike, Smile, UtensilsCrossed, X } from 'lucide-react-native';
 import { colors } from '../../src/lib/styles';
 
 export type OrderStep = 'Confirmação' | 'Preparação' | 'Entrega' | 'Entregue';
@@ -116,9 +116,15 @@ export function OrderStepsIcon({
     const iconColor = getIconColor();
     const iconSize = 20;
 
+    // Se for estado de erro, mostrar X
+    if (state === 'Error') {
+      return <X size={iconSize} color={iconColor} strokeWidth={2} />;
+    }
+
     switch (step) {
       case 'Confirmação':
-        return <Check size={iconSize} color={iconColor} strokeWidth={2} />;
+        // Usar UtensilsCrossed como alternativa ao HandPlatter (ícone de prato/mão)
+        return <UtensilsCrossed size={iconSize} color={iconColor} strokeWidth={2} />;
       case 'Preparação':
         return <Box size={iconSize} color={iconColor} strokeWidth={2} />;
       case 'Entrega':
@@ -126,7 +132,7 @@ export function OrderStepsIcon({
       case 'Entregue':
         return <Smile size={iconSize} color={iconColor} strokeWidth={2} />;
       default:
-        return <Check size={iconSize} color={iconColor} strokeWidth={2} />;
+        return <UtensilsCrossed size={iconSize} color={iconColor} strokeWidth={2} />;
     }
   };
 
@@ -185,6 +191,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     overflow: 'visible',
+    flexShrink: 0,
   },
   pulseRing: {
     position: 'absolute',

@@ -1,17 +1,18 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Image, Animated } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useState, useEffect } from 'react';
-import { Alert } from 'react-native';
-import { Button, Separator, OrderStepsIcon, PageTitle, Skeleton, ErrorState, Dialog, PixIcon } from '../../../components/ui';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { ScrollView } from 'react-native';
+import { Separator, OrderStepsIcon, Skeleton, ErrorState, Button } from '../../../components/ui';
 import { colors, spacing, typography, fontWeights, borderRadius } from '../../lib/styles';
-import { MapPin, Wallet, CreditCard, CircleCheck, Plus } from 'lucide-react-native';
-import { orderService, type Order, formatOrderDate, formatCurrency, isOrderInProgress } from '../../services/order.service';
-import { usePaymentCard } from '../../contexts/PaymentCardContext';
-import { useAuth } from '../../contexts/AuthContext';
-import { paymentService } from '../../services/payment.service';
+import { MapPin, Info, Wallet, CreditCard, ChevronDown, ChevronUp, MessageSquareMore, ChevronLeft } from 'lucide-react-native';
+import { orderService, type Order, formatOrderDate, formatCurrency } from '../../services/order.service';
+import Svg, { Path, Circle } from 'react-native-svg';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type RootStackParamList = {
   Home: undefined;
@@ -43,40 +44,496 @@ interface OrderStatus {
   date?: string;
 }
 
-export function OrderDetails() {
+// Map Track Component
+function MapTrack({ order, onBackPress }: { order: Order | null; onBackPress: () => void }) {
+  const [embedMapUrl, setEmbedMapUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Get restaurant coordinates from environment variables
+  const storeCoordinates = { 
+    latitude: parseFloat(process.env.EXPO_PUBLIC_RESTAURANT_LATITUDE || process.env.RESTAURANT_LATITUDE || '-7.0813493'),
+    longitude: parseFloat(process.env.EXPO_PUBLIC_RESTAURANT_LONGITUDE || process.env.RESTAURANT_LONGITUDE || '-34.8391646')
+  };
+  
+  // State for user coordinates (will be geocoded from address)
+  const [userCoordinates, setUserCoordinates] = useState<{ latitude: number; longitude: number }>({
+    latitude: -7.1195, // Default to João Pessoa, PB (will be updated by geocoding)
+    longitude: -34.8450
+  });
+  
+  // Calculate center point between store and user (recalculated when coordinates change)
+  const centerCoordinates = useMemo(() => ({
+    latitude: (storeCoordinates.latitude + userCoordinates.latitude) / 2,
+    longitude: (storeCoordinates.longitude + userCoordinates.longitude) / 2,
+  }), [storeCoordinates.latitude, storeCoordinates.longitude, userCoordinates.latitude, userCoordinates.longitude]);
+
+  // Calculate zoom based on distance between points
+  const zoom = useMemo(() => {
+    const latDiff = Math.abs(storeCoordinates.latitude - userCoordinates.latitude);
+    const lngDiff = Math.abs(storeCoordinates.longitude - userCoordinates.longitude);
+    const maxDiff = Math.max(latDiff, lngDiff);
+    
+    if (maxDiff < 0.01) return 15;
+    else if (maxDiff < 0.02) return 14;
+    else if (maxDiff > 0.1) return 11;
+    return 13;
+  }, [storeCoordinates.latitude, storeCoordinates.longitude, userCoordinates.latitude, userCoordinates.longitude]);
+
+  // Geocode user address to get coordinates
+  useEffect(() => {
+    const geocodeAddress = async () => {
+      if (!order?.endereco) return;
+      
+      const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 
+                     (global as any).__EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
+      
+      if (!apiKey) return;
+
+      try {
+        // Build address string
+        const addressParts = [
+          order.endereco.rua,
+          order.endereco.numero,
+          order.endereco.bairro,
+          order.endereco.cidade,
+          order.endereco.estado,
+          'Brasil'
+        ].filter(Boolean);
+        const addressString = addressParts.join(', ');
+        
+        const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressString)}&key=${apiKey}`;
+        const response = await fetch(geocodeUrl);
+        const data = await response.json();
+        
+        if (data.status === 'OK' && data.results && data.results[0]) {
+          const location = data.results[0].geometry.location;
+          setUserCoordinates({
+            latitude: location.lat,
+            longitude: location.lng
+          });
+          console.log('✅ User address geocoded successfully:', location);
+        } else {
+          console.warn('⚠️ Geocoding failed. Status:', data.status);
+        }
+      } catch (error) {
+        console.warn('⚠️ Geocoding error:', error);
+      }
+    };
+
+    geocodeAddress();
+  }, [order?.endereco]);
+
+  // Generate Google Maps JavaScript API HTML
+  useEffect(() => {
+    const generateMapHTML = async () => {
+      setIsLoading(true);
+      
+      // Wait a bit for geocoding to complete if address is being geocoded
+      if (order?.endereco) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      try {
+        const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 
+                       (global as any).__EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
+        
+        if (!apiKey) {
+          console.warn('⚠️ Google Maps API key not found');
+          console.warn('💡 Set EXPO_PUBLIC_GOOGLE_MAPS_API_KEY in your .env file');
+          setEmbedMapUrl(null);
+          setIsLoading(false);
+          return;
+        }
+
+        // Get route from Directions API
+        let routePolyline = '';
+        const origin = `${storeCoordinates.latitude},${storeCoordinates.longitude}`;
+        const destination = `${userCoordinates.latitude},${userCoordinates.longitude}`;
+        
+        try {
+          const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=${apiKey}`;
+          const response = await fetch(directionsUrl);
+          const data = await response.json();
+          
+          if (data.status === 'OK' && data.routes && data.routes[0] && data.routes[0].overview_polyline) {
+            routePolyline = data.routes[0].overview_polyline.points;
+            console.log('✅ Using real route from Directions API');
+          }
+        } catch (error) {
+          console.warn('⚠️ Directions API failed:', error);
+        }
+
+        // Account for help banner at bottom (approximately 20% of screen height)
+        // Adjust center to show more of the map above the help banner
+        const latDiff = Math.abs(storeCoordinates.latitude - userCoordinates.latitude);
+        const adjustedCenterLat = centerCoordinates.latitude + (latDiff * 0.15);
+        
+        // Build HTML with Google Maps JavaScript API
+        const primaryColor = colors.primary.replace('#', '');
+        const secondaryColor = colors.secondary.replace('#', '');
+        
+        const mapHTML = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+              <style>
+                * {
+                  margin: 0;
+                  padding: 0;
+                  box-sizing: border-box;
+                }
+                body, html {
+                  width: 100%;
+                  height: 100%;
+                  overflow: hidden;
+                  touch-action: none;
+                  background-color: #f0f0f0;
+                }
+                #map {
+                  width: 100%;
+                  height: 100%;
+                  background-color: #e0e0e0;
+                }
+                .error {
+                  padding: 20px;
+                  color: red;
+                  font-family: Arial, sans-serif;
+                }
+              </style>
+            </head>
+            <body>
+              <div id="map"></div>
+              <div id="error" class="error" style="display: none;"></div>
+              <script>
+                window.onerror = function(msg, url, line) {
+                  console.error('JavaScript error:', msg, 'at', url, ':', line);
+                  document.getElementById('error').style.display = 'block';
+                  document.getElementById('error').textContent = 'Error: ' + msg;
+                  return false;
+                };
+
+                function initMap() {
+                  try {
+                    console.log('Initializing map...');
+                    const center = { lat: ${adjustedCenterLat}, lng: ${centerCoordinates.longitude} };
+                    const map = new google.maps.Map(document.getElementById('map'), {
+                      center: center,
+                      zoom: ${zoom},
+                      mapTypeId: 'roadmap',
+                      disableDefaultUI: true,
+                      zoomControl: false,
+                      gestureHandling: 'none',
+                      draggable: false,
+                      scrollwheel: false,
+                      disableDoubleClickZoom: true,
+                      keyboardShortcuts: false
+                    });
+
+                    console.log('Map created successfully');
+
+                    // Add store marker with default icon (visible)
+                    const storeMarker = new google.maps.Marker({
+                      position: { lat: ${storeCoordinates.latitude}, lng: ${storeCoordinates.longitude} },
+                      map: map,
+                      title: 'A Loja'
+                    });
+
+                    // Add user marker with default icon (visible)
+                    const userMarker = new google.maps.Marker({
+                      position: { lat: ${userCoordinates.latitude}, lng: ${userCoordinates.longitude} },
+                      map: map,
+                      title: 'Você'
+                    });
+
+                    ${routePolyline ? `
+                    // Add route polyline
+                    try {
+                      const routePath = google.maps.geometry.encoding.decodePath('${routePolyline}');
+                      const routePolyline = new google.maps.Polyline({
+                        path: routePath,
+                        geodesic: true,
+                        strokeColor: '#${primaryColor}',
+                        strokeOpacity: 1.0,
+                        strokeWeight: 5,
+                        map: map
+                      });
+                      console.log('Route polyline added');
+                    } catch (e) {
+                      console.error('Error adding route:', e);
+                    }
+                    ` : ''}
+
+                    console.log('Map initialization complete');
+                  } catch (error) {
+                    console.error('Error in initMap:', error);
+                    document.getElementById('error').style.display = 'block';
+                    document.getElementById('error').textContent = 'Map error: ' + error.message;
+                  }
+                }
+
+                function gm_authFailure() {
+                  console.error('Google Maps authentication failed');
+                  document.getElementById('error').style.display = 'block';
+                  document.getElementById('error').textContent = 'Google Maps API authentication failed. Please check your API key.';
+                }
+              </script>
+              <script async defer
+                src="https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap&libraries=geometry&v=3.56"
+                onerror="gm_authFailure()">
+              </script>
+            </body>
+          </html>
+        `;
+        
+        setEmbedMapUrl(mapHTML);
+        console.log('✅ Google Maps JavaScript API HTML generated successfully');
+        console.log('🔑 API Key present:', !!apiKey);
+        console.log('📍 Store coordinates:', storeCoordinates);
+        console.log('📍 User coordinates:', userCoordinates);
+      } catch (error) {
+        console.error('❌ Error generating map HTML:', error);
+        setEmbedMapUrl(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    generateMapHTML();
+  }, [order, userCoordinates.latitude, userCoordinates.longitude, centerCoordinates.latitude, centerCoordinates.longitude, zoom, storeCoordinates.latitude, storeCoordinates.longitude]);
+
+  return (
+    <View style={styles.mapContainer}>
+      {/* Google Maps JavaScript API */}
+      {embedMapUrl ? (
+        <WebView
+          source={{ 
+            html: embedMapUrl
+          }}
+          style={StyleSheet.absoluteFillObject}
+          scrollEnabled={false}
+          zoomEnabled={false}
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          onLoadStart={() => setIsLoading(true)}
+          onLoadEnd={() => {
+            setIsLoading(false);
+            console.log('✅ WebView loaded');
+          }}
+          onError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            console.error('❌ WebView error:', nativeEvent);
+            console.error('❌ Error code:', nativeEvent.code);
+            console.error('❌ Error description:', nativeEvent.description);
+            setIsLoading(false);
+          }}
+          onHttpError={(syntheticEvent) => {
+            const { nativeEvent } = syntheticEvent;
+            console.error('❌ WebView HTTP error:', nativeEvent);
+            console.error('❌ Status code:', nativeEvent.statusCode);
+          }}
+          onMessage={(event) => {
+            const data = event.nativeEvent.data;
+            console.log('📨 WebView message:', data);
+          }}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+        />
+      ) : (
+        // Fallback: gray background when API key is not available
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.gray[100] }]} />
+      )}
+      
+      {/* Back Button */}
+      <TouchableOpacity 
+        style={styles.backButton}
+        onPress={onBackPress}
+        activeOpacity={0.7}
+      >
+        <ChevronLeft size={24} color={colors.black} strokeWidth={2} />
+      </TouchableOpacity>
+
+      {/* Store label - Positioned at store coordinates */}
+      {(() => {
+        // Calculate map bounds based on zoom level and center
+        // For zoom 13, approximate degrees per pixel
+        const latDiff = Math.abs(storeCoordinates.latitude - userCoordinates.latitude) * 1.5 || 0.05;
+        const lngDiff = Math.abs(storeCoordinates.longitude - userCoordinates.longitude) * 1.5 || 0.05;
+        
+        // Calculate visible map bounds (approximate)
+        const mapLatMin = centerCoordinates.latitude - latDiff;
+        const mapLatMax = centerCoordinates.latitude + latDiff;
+        const mapLngMin = centerCoordinates.longitude - lngDiff;
+        const mapLngMax = centerCoordinates.longitude + lngDiff;
+        
+        // Account for safe area and help banner (approximately 20% from bottom)
+        const mapVisibleHeight = SCREEN_HEIGHT * 0.8; // 80% visible (20% for help banner)
+        const mapVisibleTop = 0; // Start from top
+        
+        // Convert geographic coordinates to screen pixels
+        const storeX = ((storeCoordinates.longitude - mapLngMin) / (mapLngMax - mapLngMin)) * SCREEN_WIDTH;
+        const storeY = mapVisibleTop + ((mapLatMax - storeCoordinates.latitude) / (mapLatMax - mapLatMin)) * mapVisibleHeight;
+        
+        const userX = ((userCoordinates.longitude - mapLngMin) / (mapLngMax - mapLngMin)) * SCREEN_WIDTH;
+        const userY = mapVisibleTop + ((mapLatMax - userCoordinates.latitude) / (mapLatMax - mapLatMin)) * mapVisibleHeight;
+        
+        return (
+          <>
+            <View 
+              style={[
+                styles.storeLabelContainer,
+                {
+                  position: 'absolute',
+                  top: storeY - 30, // Offset to center label above point
+                  left: storeX - 40, // Offset to center label horizontally
+                }
+              ]}
+            >
+              <View style={[styles.labelContainer, { backgroundColor: colors.primary }]}>
+                <Text style={styles.labelText}>A Loja</Text>
+                <View style={styles.triangleContainer}>
+                  <Svg width={12} height={6} viewBox="0 0 12 6">
+                    <Path d="M6 6L12 0H0L6 6Z" fill={colors.primary} />
+                  </Svg>
+                </View>
+              </View>
+            </View>
+
+            {/* User label - Positioned at user coordinates */}
+            <View 
+              style={[
+                styles.userLabelContainer,
+                {
+                  position: 'absolute',
+                  top: userY - 30, // Offset to center label above point
+                  left: userX - 30, // Offset to center label horizontally
+                }
+              ]}
+            >
+              <View style={[styles.labelContainer, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.labelText, { color: colors.black }]}>Você</Text>
+                <View style={styles.triangleContainer}>
+                  <Svg width={12} height={6} viewBox="0 0 12 6">
+                    <Path d="M6 6L12 0H0L6 6Z" fill={colors.secondary} />
+                  </Svg>
+                </View>
+              </View>
+            </View>
+          </>
+        );
+      })()}
+    </View>
+  );
+}
+
+// Help Banner Component
+function HelpBanner() {
+  // TODO: Replace with actual avatar image from order/user
+  const avatarImage = null; // Placeholder for avatar image
+  
+  return (
+    <View style={styles.helpBanner}>
+      <View style={styles.helpBannerAvatar}>
+        {avatarImage ? (
+          <Image source={avatarImage} style={styles.avatarImage} />
+        ) : (
+          <View style={styles.avatarPlaceholder} />
+        )}
+      </View>
+      <View style={styles.helpBannerContent}>
+        <Text style={styles.helpBannerTitle}>Precisa de ajuda?</Text>
+        <Text style={styles.helpBannerSubtitle}>Fale conosco no chat</Text>
+      </View>
+      <TouchableOpacity style={styles.helpBannerButton} activeOpacity={0.7}>
+        <MessageSquareMore size={24} color={colors.mutedForeground} strokeWidth={2} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+interface OrderDetailsProps {
+  detailsActive?: "False" | "True" | "--";
+  error?: boolean;
+}
+
+export function OrderDetails({ detailsActive, error }: OrderDetailsProps = {}) {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<OrderDetailsRouteProp>();
   
   const { orderNumber, orderDate, orderId } = route.params || {};
   
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<string | null>(null);
   const [order, setOrder] = useState<Order | null>(null);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [canceling, setCanceling] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-  const { cards: paymentCards, defaultCard, loading: cardsLoading, addCard: addPaymentCard } = usePaymentCard();
-  const { user } = useAuth();
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
-  const [processingPayment, setProcessingPayment] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  
+  // Determine if details should be shown based on props or state
+  const isDetailsActive = detailsActive === "True";
+  const hasPaymentError = Boolean(error) && detailsActive === "--";
+  
+  const [showDetails, setShowDetails] = useState(isDetailsActive);
+  
+  // Animation values
+  const animatedHeight = useRef(new Animated.Value(isDetailsActive ? 1 : 0)).current;
+  const animatedOpacity = useRef(new Animated.Value(isDetailsActive ? 1 : 0)).current;
+  const MAX_DETAILS_HEIGHT = SCREEN_HEIGHT * 0.4; // Maximum 40% of screen height
+  const contentHeight = useRef(MAX_DETAILS_HEIGHT);
+  const contentMeasured = useRef(false);
+  const animationStarted = useRef(isDetailsActive);
+
+  // Animate details section when showDetails changes
+  useEffect(() => {
+    const shouldShow = showDetails || isDetailsActive;
+    animationStarted.current = shouldShow;
+    
+    // Only animate if content has been measured, or use default height
+    if (shouldShow) {
+      // Open animation - both must use useNativeDriver: false because maxHeight doesn't support native driver
+      Animated.parallel([
+        Animated.timing(animatedHeight, {
+          toValue: 1,
+          duration: 500, // Increased from 300ms to 500ms for smoother animation
+          useNativeDriver: false, // height animation requires layout
+        }),
+        Animated.timing(animatedOpacity, {
+          toValue: 1,
+          duration: 400, // Increased from 250ms to 400ms for smoother animation
+          useNativeDriver: false, // Changed to false to avoid conflicts
+        }),
+      ]).start();
+    } else {
+      // Close animation
+      Animated.parallel([
+        Animated.timing(animatedHeight, {
+          toValue: 0,
+          duration: 400, // Increased from 300ms to 400ms
+          useNativeDriver: false,
+        }),
+        Animated.timing(animatedOpacity, {
+          toValue: 0,
+          duration: 300, // Increased from 200ms to 300ms
+          useNativeDriver: false, // Changed to false to avoid conflicts
+        }),
+      ]).start();
+    }
+  }, [showDetails, isDetailsActive, animatedHeight, animatedOpacity]);
 
   // Buscar pedido
   useEffect(() => {
     const fetchOrder = async () => {
       if (!orderId) {
-        setError('ID do pedido não fornecido');
+        setErrorState('ID do pedido não fornecido');
         setLoading(false);
         return;
       }
 
       try {
-        setError(null);
+        setErrorState(null);
         const orderData = await orderService.getOrderById(orderId);
         setOrder(orderData);
       } catch (err: any) {
         console.error('Erro ao buscar pedido:', err);
-        setError(err.message || 'Erro ao carregar pedido');
+        setErrorState(err.message || 'Erro ao carregar pedido');
       } finally {
         setLoading(false);
       }
@@ -112,20 +569,20 @@ export function OrderDetails() {
     let confirmacaoLabel: string;
     let confirmacaoState: 'Default' | 'Current' | 'Complete' | 'Error';
     
-    if (isCancelado) {
-      // Pedido cancelado
+    // Se houver erro de pagamento, mostrar estado de erro
+    if (hasPaymentError) {
+      confirmacaoLabel = 'Erro no pagamento';
+      confirmacaoState = 'Error';
+    } else if (isCancelado) {
       confirmacaoLabel = 'Pedido cancelado';
       confirmacaoState = 'Error';
     } else if (isConfirmado) {
-      // Já foi confirmado
       confirmacaoLabel = 'Confirmado';
       confirmacaoState = 'Complete';
     } else if (isAguardandoPagamento) {
-      // Aguardando pagamento
       confirmacaoLabel = 'Aguardando pagamento';
       confirmacaoState = 'Current';
     } else {
-      // Ainda aguardando confirmação
       confirmacaoLabel = 'Aguardando confirmação';
       confirmacaoState = 'Current';
     }
@@ -135,15 +592,12 @@ export function OrderDetails() {
     let preparacaoState: 'Default' | 'Current' | 'Complete';
     
     if (isPreparado) {
-      // Já foi preparado
       preparacaoLabel = 'Preparado';
       preparacaoState = 'Complete';
     } else if (isPreparando) {
-      // Está preparando
       preparacaoLabel = 'Preparando';
       preparacaoState = 'Current';
     } else {
-      // Ainda não começou a preparação
       preparacaoLabel = 'Preparando';
       preparacaoState = 'Default';
     }
@@ -153,19 +607,15 @@ export function OrderDetails() {
     let entregaState: 'Default' | 'Current' | 'Complete';
     
     if (isEntregue) {
-      // Já foi entregue
       entregaLabel = 'Saiu para entrega';
       entregaState = 'Complete';
     } else if (isSaiuParaEntrega) {
-      // Saiu para entrega
       entregaLabel = 'Saiu para entrega';
       entregaState = 'Current';
     } else if (isPreparando) {
-      // Ainda preparando, aguardando motorista
       entregaLabel = 'Aguardando motorista';
       entregaState = 'Default';
     } else {
-      // Ainda não chegou na etapa de entrega
       entregaLabel = 'Aguardando motorista';
       entregaState = 'Default';
     }
@@ -206,6 +656,44 @@ export function OrderDetails() {
     ];
   };
 
+  // Get status message based on order status
+  const getStatusMessage = (): string => {
+    if (!order) return '';
+
+    // Se houver erro de pagamento, mostrar mensagem de erro
+    if (hasPaymentError) {
+      return 'Erro no pagamento do pedido';
+    }
+
+    const status = order.status;
+    
+    if (status === 'preparando') {
+      return 'Pedido em separação, ele sairá para entrega em breve';
+    } else if (status === 'saiu_para_entrega') {
+      return 'Seu pedido saiu para entrega';
+    } else if (status === 'entregue') {
+      return 'Pedido entregue';
+    } else if (status === 'confirmado') {
+      return 'Pedido confirmado, será preparado em breve';
+    } else if (status === 'aguardando_pagamento') {
+      return 'Aguardando confirmação do pagamento';
+    } else if (status === 'pendente') {
+      return 'Aguardando confirmação do pedido';
+    } else if (status === 'cancelado') {
+      return 'Pedido cancelado';
+    }
+    
+    return 'Pedido em separação, ele sairá para entrega em breve';
+  };
+
+  // Get delivery estimate
+  const getDeliveryEstimate = (): string => {
+    if (!order || !order.tempoEntrega) {
+      return '10:00 - 10:40';
+    }
+    return order.tempoEntrega;
+  };
+
   // Formatar método de pagamento
   const getPaymentMethodLabel = (method: string): string => {
     switch (method) {
@@ -222,109 +710,13 @@ export function OrderDetails() {
     }
   };
 
-  // Verificar se pode cancelar
-  const canCancel = order && isOrderInProgress(order.status) && order.status !== 'cancelado';
-  const needsPayment = order && (order.status === 'pendente' || order.status === 'aguardando_pagamento');
-  
-  // Carregar cartões quando precisar de pagamento
-  useEffect(() => {
-    if (needsPayment && paymentCards.length > 0 && !selectedPaymentMethod) {
-      setSelectedPaymentMethod(defaultCard?.id || paymentCards[0].id || 'pix');
+  // Get payment card mask
+  const getPaymentCardMask = (): string => {
+    if (!order || !order.cartaoId) {
+      return '****5678';
     }
-  }, [needsPayment, paymentCards, defaultCard, selectedPaymentMethod]);
-
-  // Processar pagamento
-  const handleProcessPayment = async () => {
-    if (!order || !selectedPaymentMethod || !user) return;
-
-    try {
-      setProcessingPayment(true);
-      setPaymentError(null);
-
-      // Preparar dados do pagador
-      if (!user.email) {
-        throw new Error('Email do usuário não encontrado');
-      }
-
-      const payerData = {
-        email: user.email,
-        firstName: user.nomeCompleto?.split(' ')[0] || '',
-        lastName: user.nomeCompleto?.split(' ').slice(1).join(' ') || '',
-        identification: {
-          type: 'CPF' as const,
-          number: user.cpf?.replace(/\D/g, '') || '',
-        },
-      };
-
-      // Processar pagamento
-      if (selectedPaymentMethod === 'pix') {
-        await paymentService.processOrderPayment(order.id, {
-          metodoPagamento: 'pix',
-          payer: payerData,
-        });
-      } else {
-        const selectedCard = paymentCards.find(card => card.id === selectedPaymentMethod);
-        if (!selectedCard) {
-          throw new Error('Cartão selecionado não encontrado');
-        }
-        
-        await paymentService.processOrderPayment(order.id, {
-          metodoPagamento: selectedCard.tipo,
-          cartaoId: selectedCard.id,
-          payer: payerData,
-        });
-      }
-
-      // Recarregar pedido para atualizar status
-      const updatedOrder = await orderService.getOrderById(order.id);
-      setOrder(updatedOrder);
-    } catch (err: any) {
-      console.error('Erro ao processar pagamento:', err);
-      setPaymentError(err.message || 'Erro ao processar pagamento. Tente novamente.');
-    } finally {
-      setProcessingPayment(false);
-    }
-  };
-
-  // Cancelar pedido
-  const handleCancelOrder = async () => {
-    if (!order || !orderId) return;
-
-    try {
-      setCanceling(true);
-      await orderService.cancelOrder(orderId, cancelReason || undefined);
-      
-      // Recarregar pedido para atualizar status
-      const updatedOrder = await orderService.getOrderById(orderId);
-      setOrder(updatedOrder);
-      setShowCancelModal(false);
-      setCancelReason('');
-      
-      Alert.alert(
-        'Pedido cancelado',
-        'Seu pedido foi cancelado com sucesso.',
-        [{ text: 'OK' }]
-      );
-    } catch (err: any) {
-      Alert.alert(
-        'Erro ao cancelar',
-        err.message || 'Não foi possível cancelar o pedido. Tente novamente.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setCanceling(false);
-    }
-  };
-
-  // Formatar endereço completo
-  const formatAddress = (address: Order['endereco']): string => {
-    const parts = [
-      `${address.rua}, ${address.numero}`,
-      address.complemento,
-      `${address.bairro}, ${address.cidade} - ${address.estado}`,
-      `CEP: ${address.cep}`,
-    ].filter(Boolean);
-    return parts.join('\n');
+    // TODO: Get card details from payment card context
+    return '****5678';
   };
 
   const orderStatus = getOrderStatus();
@@ -336,570 +728,609 @@ export function OrderDetails() {
         backgroundColor={colors.white}
         translucent={false}
       />
-      <SafeAreaView 
-        style={[styles.safeArea, { backgroundColor: colors.white }]} 
-        edges={['top']}
-      >
-        <View style={{ backgroundColor: colors.gray[50], flex: 1 }}>
-        {/* Header */}
-        <PageTitle
-          title={`Pedido ${orderNumber}`}
-          showCounter={false}
-          onBackPress={() => navigation.goBack()}
-        />
+      <View style={styles.container}>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <Skeleton width={150} height={18} borderRadius={4} />
+          </View>
+        ) : errorState ? (
+          <ErrorState
+            type="orders"
+            title="Erro ao carregar pedido"
+            description={errorState}
+            retryLabel="Tentar novamente"
+            onRetry={() => {
+              setLoading(true);
+              if (orderId) {
+                orderService.getOrderById(orderId)
+                  .then(setOrder)
+                  .catch((err: any) => setErrorState(err.message || 'Erro ao carregar pedido'))
+                  .finally(() => setLoading(false));
+              }
+            }}
+            actionLabel="Voltar"
+            onAction={() => navigation.goBack()}
+          />
+        ) : (
+          <>
+            {/* Map Track Section - Full Screen Background */}
+            <View style={styles.mapSection}>
+              <MapTrack order={order} onBackPress={() => navigation.goBack()} />
+            </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {loading ? (
-            /* Loading State */
-            <>
-              <View style={styles.section}>
-                <Skeleton width={150} height={18} borderRadius={4} />
-                <View style={{ marginTop: spacing.md, gap: spacing.md }}>
-                  {[1, 2, 3, 4].map((i) => (
-                    <Skeleton key={i} width="100%" height={60} borderRadius={8} />
-                  ))}
-                </View>
-              </View>
-            </>
-          ) : error ? (
-            /* Error State */
-            <ErrorState
-              type="orders"
-              title="Erro ao carregar pedido"
-              description={error}
-              retryLabel="Tentar novamente"
-              onRetry={() => {
-                setLoading(true);
-                if (orderId) {
-                  orderService.getOrderById(orderId)
-                    .then(setOrder)
-                    .catch((err: any) => setError(err.message || 'Erro ao carregar pedido'))
-                    .finally(() => setLoading(false));
-                }
-              }}
-              actionLabel="Voltar"
-              onAction={() => navigation.goBack()}
-            />
-          ) : !order ? (
-            /* No Order State */
-            <ErrorState
-              type="not_found"
-              title="Pedido não encontrado"
-              description="O pedido solicitado não foi encontrado"
-              actionLabel="Voltar"
-              onAction={() => navigation.goBack()}
-            />
-          ) : (
-            <>
-              {/* Status do pedido */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Status do pedido</Text>
-                <View style={styles.timelineContainer}>
-                  {orderStatus.map((status, index) => (
-                    <View key={index} style={styles.timelineItem}>
-                      <OrderStepsIcon
-                        step={status.step}
-                        state={status.state === 'Error' ? 'Default' : status.state}
-                        showConnector={index < orderStatus.length - 1}
-                      />
-                      <View style={styles.timelineContent}>
-                        <Text
-                          style={[
-                            styles.timelineLabel,
-                            status.state === 'Current' && styles.timelineLabelCurrent,
-                            status.state === 'Complete' && styles.timelineLabelComplete,
-                            status.state === 'Error' && styles.timelineLabelError,
-                          ]}
-                        >
-                          {status.label}
-                        </Text>
-                        {status.date && (
-                          <Text style={styles.timelineDate}>{status.date}</Text>
+            {/* Bottom Overlay Section - Overlaps Map */}
+            <View style={styles.bottomOverlay}>
+              {/* Help Banner */}
+              <HelpBanner />
+
+              {/* Order Status Card */}
+              <View style={[styles.statusCard, isDetailsActive && styles.statusCardExpanded]}>
+                {/* Status Message */}
+                <Text style={styles.statusMessage}>
+                  {getStatusMessage()}
+                </Text>
+
+                {/* Order Steps */}
+                <View style={styles.stepsContainer}>
+                  {orderStatus.map((status, index) => {
+                    const isLast = index === orderStatus.length - 1;
+                    const currentState = status.state;
+                    const nextState = !isLast ? orderStatus[index + 1].state : null;
+                    
+                    // Determine connector color
+                    let connectorColor = colors.gray[200];
+                    if (currentState === 'Complete') {
+                      connectorColor = nextState === 'Current' ? colors.primary : colors.green[700];
+                    } else if (currentState === 'Current') {
+                      connectorColor = colors.primary;
+                    } else if (currentState === 'Error') {
+                      connectorColor = colors.red[600] || '#DC6E00';
+                    }
+                    
+                    return (
+                      <View key={index} style={styles.stepItem}>
+                        <OrderStepsIcon
+                          step={status.step}
+                          state={currentState}
+                          showConnector={false}
+                        />
+                        {!isLast && (
+                          <View style={[styles.horizontalConnector, { backgroundColor: connectorColor }]} />
                         )}
                       </View>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
-              </View>
 
-              {/* Seção de pagamento pendente */}
-              {needsPayment && (
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Wallet size={20} color={colors.primary} strokeWidth={2} />
-                    <Text style={styles.sectionTitle}>Finalizar pagamento</Text>
-                  </View>
-                  <Text style={styles.paymentPendingText}>
-                    Seu pedido foi criado, mas o pagamento ainda não foi processado. Selecione uma forma de pagamento para finalizar.
+                {/* Delivery Estimate - Only show if not error */}
+                {!hasPaymentError && (
+                  <Text style={styles.deliveryEstimate}>
+                    <Text style={styles.deliveryEstimateLabel}>Previsão de entrega:</Text>
+                    {` ${getDeliveryEstimate()}`}
                   </Text>
-
-                  {paymentError && (
-                    <View style={styles.paymentErrorContainer}>
-                      <Text style={styles.paymentErrorText}>{paymentError}</Text>
-                    </View>
-                  )}
-
-                  {/* Cartões salvos */}
-                  {paymentCards.map((card) => (
-                    <TouchableOpacity
-                      key={card.id}
-                      style={[
-                        styles.paymentCard,
-                        selectedPaymentMethod === card.id && styles.paymentCardSelected
-                      ]}
-                      onPress={() => setSelectedPaymentMethod(card.id)}
-                      activeOpacity={0.7}
-                    >
-                      <CreditCard size={24} color={selectedPaymentMethod === card.id ? colors.primary : colors.black} strokeWidth={2} />
-                      <View style={styles.paymentCardContent}>
-                        <Text style={[
-                          styles.paymentMethodName,
-                          selectedPaymentMethod === card.id && styles.paymentMethodNameSelected
-                        ]}>
-                          {card.tipo === 'cartao_credito' ? 'Cartão de Crédito' : 'Cartão de Débito'}
-                        </Text>
-                        <Text style={styles.paymentMethodDetails}>
-                          •••• {card.ultimosDigitos}
-                        </Text>
-                        {card.cartaoPadrao && (
-                          <Text style={styles.defaultCardLabel}>Padrão</Text>
-                        )}
-                      </View>
-                      {selectedPaymentMethod === card.id && (
-                        <CircleCheck size={24} color={colors.primary} strokeWidth={2} />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-
-                  {/* Pix */}
-                  <TouchableOpacity
-                    style={[
-                      styles.paymentCard,
-                      selectedPaymentMethod === 'pix' && styles.paymentCardSelected
-                    ]}
-                    onPress={() => setSelectedPaymentMethod('pix')}
-                    activeOpacity={0.7}
-                  >
-                    <PixIcon size={24} color={selectedPaymentMethod === 'pix' ? colors.primary : colors.black} />
-                    <View style={styles.paymentCardContent}>
-                      <Text style={[
-                        styles.paymentMethodName,
-                        selectedPaymentMethod === 'pix' && styles.paymentMethodNameSelected
-                      ]}>
-                        Pix
-                      </Text>
-                    </View>
-                    {selectedPaymentMethod === 'pix' && (
-                      <CircleCheck size={24} color={colors.primary} strokeWidth={2} />
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Botão para processar pagamento */}
-                  <Button
-                    title={processingPayment ? 'Processando...' : 'Finalizar pagamento'}
-                    variant="primary"
-                    size="lg"
-                    onPress={handleProcessPayment}
-                    disabled={!selectedPaymentMethod || processingPayment}
-                    loading={processingPayment}
-                    style={styles.processPaymentButton}
-                  />
-                </View>
-              )}
-
-              {/* Informações do pedido */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Informações do pedido</Text>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Data do pedido</Text>
-                  <Text style={styles.infoValue}>
-                    {orderDate || formatOrderDate(order.criadoEm)}
-                  </Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Número do pedido</Text>
-                  <Text style={styles.infoValue}>
-                    {orderNumber || order.numeroPedido}
-                  </Text>
-                </View>
-                {order.tempoEntrega && (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Tempo de entrega</Text>
-                    <Text style={styles.infoValue}>{order.tempoEntrega}</Text>
-                  </View>
                 )}
-              </View>
-
-              {/* Endereço de entrega */}
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <MapPin size={20} color={colors.primary} strokeWidth={2} />
-                  <Text style={styles.sectionTitle}>Endereço de entrega</Text>
-                </View>
-                <View style={styles.addressCard}>
-                  <Text style={styles.addressStreet}>
-                    {order.endereco.rua}, {order.endereco.numero}
-                  </Text>
-                  {order.endereco.complemento && (
-                    <Text style={styles.addressLine}>{order.endereco.complemento}</Text>
-                  )}
-                  <Text style={styles.addressLine}>
-                    {order.endereco.bairro}, {order.endereco.cidade} - {order.endereco.estado}
-                  </Text>
-                  <Text style={styles.addressLine}>CEP: {order.endereco.cep}</Text>
-                </View>
-              </View>
-
-              {/* Forma de pagamento (só mostra se não precisa pagar) */}
-              {!needsPayment && (
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Wallet size={20} color={colors.primary} strokeWidth={2} />
-                    <Text style={styles.sectionTitle}>Forma de pagamento</Text>
-                  </View>
-                  <View style={styles.paymentCardInfo}>
-                    <CreditCard size={24} color={colors.black} strokeWidth={2} />
-                    <View style={styles.paymentCardInfoContent}>
-                      <Text style={styles.paymentMethodInfoName}>
-                        {getPaymentMethodLabel(order.metodoPagamento)}
-                      </Text>
-                      {order.cartaoId && (
-                        <Text style={styles.paymentMethodInfoDetails}>Cartão salvo</Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              )}
-
-              {/* Resumo do pedido */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Resumo do pedido</Text>
-                
-                {/* Itens do pedido */}
-                <View style={styles.itemsList}>
-                  {order.itens.map((item) => (
-                    <View key={item.id} style={styles.orderItemRow}>
-                      <Text style={styles.orderItemText}>
-                        {item.quantidade}x {item.nomeProduto}
-                      </Text>
-                      <Text style={styles.orderItemPrice}>
-                        {formatCurrency(item.precoTotal)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
 
                 <Separator style={styles.separator} />
 
-                {/* Totais */}
-                <View style={styles.totalsList}>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Subtotal</Text>
-                    <Text style={styles.totalValue}>{formatCurrency(order.subtotal)}</Text>
-                  </View>
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Taxa de entrega</Text>
-                    <Text style={styles.totalValue}>{formatCurrency(order.taxaEntrega)}</Text>
-                  </View>
-                  {order.desconto > 0 && (
-                    <View style={styles.totalRow}>
-                      <Text style={[styles.totalLabel, styles.discountLabel]}>Desconto</Text>
-                      <Text style={[styles.totalValue, styles.discountValue]}>
-                        - {formatCurrency(order.desconto)}
-                      </Text>
+                {/* Details Section - Animated */}
+                <Animated.View
+                  style={[
+                    styles.detailsAnimatedContainer,
+                    {
+                      height: animatedHeight.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, contentHeight.current],
+                      }),
+                      opacity: animatedOpacity,
+                    },
+                  ]}
+                >
+                  <ScrollView 
+                    style={styles.detailsScrollView}
+                    contentContainerStyle={styles.detailsContent}
+                    showsVerticalScrollIndicator={false}
+                    scrollEnabled={showDetails || isDetailsActive}
+                    onContentSizeChange={(contentWidth, contentHeightValue) => {
+                      if (contentHeightValue > 0) {
+                        // Limit content height to maximum percentage of screen
+                        const actualContentHeight = Math.min(contentHeightValue, MAX_DETAILS_HEIGHT);
+                        const wasDefault = contentHeight.current === MAX_DETAILS_HEIGHT;
+                        contentHeight.current = actualContentHeight;
+                        contentMeasured.current = true;
+                        
+                        // If content was just measured for the first time and should be shown, animate
+                        if (wasDefault && (showDetails || isDetailsActive)) {
+                          // Trigger animation after a small delay to ensure layout is complete
+                          setTimeout(() => {
+                            if (showDetails || isDetailsActive) {
+                              animatedHeight.setValue(1);
+                              animatedOpacity.setValue(1);
+                            }
+                          }, 50);
+                        }
+                      }
+                    }}
+                  >
+                    {/* Order Information */}
+                    <View style={styles.detailCard}>
+                      <View style={styles.detailCardHeader}>
+                        <Info size={16.67} color={colors.primary} strokeWidth={2} />
+                        <Text style={styles.detailCardTitle}>Informações do pedido</Text>
+                      </View>
+                      <View style={styles.detailCardContent}>
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Data do pedido</Text>
+                          <Text style={styles.detailValue}>
+                            {orderDate || (order ? formatOrderDate(order.criadoEm) : '')}
+                          </Text>
+                        </View>
+                        <View style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>Número do pedido</Text>
+                          <Text style={styles.detailValue}>
+                            {orderNumber || (order ? order.numeroPedido : '')}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                  )}
-                  {order.cupom && (
-                    <View style={styles.totalRow}>
-                      <Text style={styles.totalLabel}>Cupom aplicado</Text>
-                      <Text style={styles.totalValue}>{order.cupom.codigo}</Text>
-                    </View>
-                  )}
-                </View>
 
-                {/* Total final */}
-                <View style={styles.finalTotalRow}>
-                  <Text style={styles.finalTotalLabel}>Total</Text>
-                  <Text style={styles.finalTotalValue}>
-                    {formatCurrency(order.total)}
-                  </Text>
-                </View>
-              </View>
+                    {/* Delivery Address */}
+                    {order && (
+                      <View style={styles.detailCard}>
+                        <View style={styles.detailCardHeader}>
+                          <MapPin size={16.67} color={colors.primary} strokeWidth={2} />
+                          <Text style={styles.detailCardTitle}>Endereço de entrega</Text>
+                        </View>
+                        <View style={styles.addressContent}>
+                          <Text style={styles.addressStreet}>
+                            {order.endereco.rua}, {order.endereco.numero}
+                          </Text>
+                          {order.endereco.complemento && (
+                            <Text style={styles.addressLine}>{order.endereco.complemento}</Text>
+                          )}
+                          <Text style={styles.addressLine}>
+                            {order.endereco.bairro}, {order.endereco.cidade} - {order.endereco.estado}
+                          </Text>
+                          <Text style={styles.addressLine}>CEP: {order.endereco.cep}</Text>
+                        </View>
+                      </View>
+                    )}
 
-              {/* Action Buttons */}
-              <View style={styles.actionsContainer}>
-                {canCancel && (
+                    {/* Payment Method */}
+                    {order && (
+                      <View style={styles.detailCard}>
+                        <View style={styles.detailCardHeader}>
+                          <Wallet size={16.67} color={colors.primary} strokeWidth={2} />
+                          <Text style={styles.detailCardTitle}>Forma de pagamento</Text>
+                        </View>
+                        <View style={styles.paymentCard}>
+                          <CreditCard size={24} color={colors.black} strokeWidth={2} />
+                          <View style={styles.paymentCardContent}>
+                            <Text style={styles.paymentMethodName}>
+                              {getPaymentMethodLabel(order.metodoPagamento)}
+                            </Text>
+                            <Text style={styles.paymentMethodDetails}>
+                              {getPaymentCardMask()}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Order Summary */}
+                    {order && (
+                      <View style={styles.detailCard}>
+                        <Text style={styles.summaryTitle}>Resumo do pedido</Text>
+                        
+                        {/* Order Items */}
+                        <View style={styles.itemsList}>
+                          {order.itens.map((item) => (
+                            <View key={item.id} style={styles.itemRow}>
+                              <Text style={styles.itemText}>
+                                {item.quantidade}x {item.nomeProduto}
+                              </Text>
+                              <Text style={styles.itemPrice}>
+                                {formatCurrency(item.precoTotal)}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        <Separator style={styles.separator} />
+
+                        {/* Totals */}
+                        <View style={styles.totalsList}>
+                          <View style={styles.totalRow}>
+                            <Text style={styles.totalLabel}>Subtotal</Text>
+                            <Text style={styles.totalValue}>{formatCurrency(order.subtotal)}</Text>
+                          </View>
+                          <View style={styles.totalRow}>
+                            <Text style={styles.totalLabel}>Taxa de entrega</Text>
+                            <Text style={styles.totalValue}>{formatCurrency(order.taxaEntrega)}</Text>
+                          </View>
+                          {order.desconto > 0 && (
+                            <View style={styles.totalRow}>
+                              <Text style={[styles.totalLabel, styles.discountLabel]}>Desconto</Text>
+                              <Text style={[styles.totalValue, styles.discountValue]}>
+                                - {formatCurrency(order.desconto)}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Final Total */}
+                        <View style={styles.finalTotalRow}>
+                          <Text style={styles.finalTotalLabel}>Total</Text>
+                          <Text style={styles.finalTotalValue}>
+                            {formatCurrency(order.total)}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </ScrollView>
+                </Animated.View>
+
+                {/* Payment Error Button */}
+                {hasPaymentError && (
                   <Button
-                    title="Cancelar pedido"
-                    variant="ghost"
-                    size="lg"
-                    onPress={() => setShowCancelModal(true)}
-                    style={[styles.actionButton, styles.cancelButton]}
-                    textColor={colors.red[600] || '#dc2626'}
+                    title="Realizar pagamento"
+                    variant="primary"
+                    size="md"
+                    onPress={() => {
+                      // TODO: Navigate to payment screen
+                      console.log('Navigate to payment');
+                    }}
+                    style={styles.paymentErrorButton}
                   />
                 )}
-                <Button
-                  title="Fazer novo pedido"
-                  variant="primary"
-                  size="lg"
-                  onPress={() => {
-                    navigation.reset({
-                      index: 0,
-                      routes: [{ name: 'Home' }],
-                    });
-                  }}
-                  style={styles.actionButton}
-                />
-                <Button
-                  title="Ver todos os pedidos"
-                  variant="ghost"
-                  size="lg"
-                  onPress={() => {
-                    navigation.navigate('MyOrders');
-                  }}
-                  style={styles.actionButton}
-                />
-              </View>
-            </>
-          )}
-        </ScrollView>
-        </View>
-      </SafeAreaView>
 
-      {/* Dialog de Cancelamento */}
-      <Dialog
-        visible={showCancelModal}
-        onClose={() => {
-          setShowCancelModal(false);
-          setCancelReason('');
-        }}
-        title="Cancelar pedido"
-        description="Tem certeza que deseja cancelar este pedido? Esta ação não pode ser desfeita."
-        primaryButtonLabel="Cancelar pedido"
-        primaryButtonVariant="error"
-        primaryButtonOnPress={handleCancelOrder}
-        primaryButtonDisabled={canceling}
-        primaryButtonLoading={canceling}
-        secondaryButtonLabel="Voltar"
-        secondaryButtonVariant="ghost"
-        secondaryButtonOnPress={() => {
-          setShowCancelModal(false);
-          setCancelReason('');
-        }}
-      />
+                {/* Toggle Details Button */}
+                <TouchableOpacity
+                  style={styles.toggleDetailsButton}
+                  onPress={() => setShowDetails(!showDetails)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.toggleDetailsText}>
+                    {showDetails ? 'Ocultar detalhes' : 'Ver mais detalhes'}
+                  </Text>
+                  {showDetails ? (
+                    <ChevronUp size={24} color={colors.mutedForeground} strokeWidth={2} />
+                  ) : (
+                    <ChevronDown size={24} color={colors.mutedForeground} strokeWidth={2} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
+      </View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  container: {
     flex: 1,
+    backgroundColor: colors.white,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+  },
+  mapSection: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.gray[50],
   },
-  scrollView: {
+  mapContainer: {
     flex: 1,
+    position: 'relative',
   },
-  scrollContent: {
+  mapMarkerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapMarker: {
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    borderWidth: 2,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapMarkerInner: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: spacing.md,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  storeLabelContainer: {
+    position: 'absolute',
+    top: SCREEN_HEIGHT * 0.25,
+    right: SCREEN_WIDTH * 0.15,
+    zIndex: 2, // Below track component
+  },
+  userLabelContainer: {
+    position: 'absolute',
+    top: SCREEN_HEIGHT * 0.32,
+    left: SCREEN_WIDTH * 0.15,
+    zIndex: 2, // Below track component
+  },
+  markerLabel: {
+    position: 'absolute',
+    zIndex: 10,
+  },
+  labelContainer: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 99,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    alignSelf: 'flex-start', // Allow container to size to content
+  },
+  labelText: {
+    ...typography.sm,
+    fontWeight: fontWeights.semibold,
+    color: colors.white,
+  },
+  triangleContainer: {
+    position: 'absolute',
+    bottom: -6,
+    left: '50%',
+    width: 12,
+    height: 6,
+    marginLeft: -6, // Center the 12px wide triangle (half of 12px)
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  svgMarkerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 5,
+  },
+  helpBanner: {
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md + 24, // Extra padding bottom to show more
+    paddingHorizontal: spacing.xl,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    gap: spacing.sm,
+    marginBottom: -24, // Less overlap to show more of the banner
+    zIndex: 6,
+  },
+  helpBannerAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.white,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholder: {
+    width: 44,
+    height: 44,
+    backgroundColor: colors.gray[200],
+  },
+  avatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  helpBannerContent: {
+    flex: 1,
+    gap: 2,
+  },
+  helpBannerTitle: {
+    ...typography.base,
+    fontWeight: fontWeights.semibold,
+    color: colors.white,
+  },
+  helpBannerSubtitle: {
+    ...typography.sm,
+    fontWeight: fontWeights.normal,
+    color: colors.white,
+  },
+  helpBannerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusCard: {
+    backgroundColor: colors.white,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    gap: spacing.md,
+    zIndex: 7,
+    overflow: 'visible',
+  },
+  statusCardExpanded: {
     paddingBottom: spacing.xl,
   },
-  section: {
-    backgroundColor: colors.white,
-    padding: spacing.lg,
-    marginBottom: spacing.sm,
+  statusMessage: {
+    ...typography.lg,
+    fontWeight: fontWeights.medium,
+    color: colors.black,
+    lineHeight: 22,
+  },
+  stepsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: spacing.xs,
+    overflow: 'visible',
+    minHeight: 36,
+  },
+  stepItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    overflow: 'visible',
+    justifyContent: 'center',
+  },
+  horizontalConnector: {
+    height: 2,
+    flex: 1,
+    minWidth: 30,
+    maxWidth: 100,
+    marginHorizontal: spacing.xs,
+    zIndex: 0,
+  },
+  deliveryEstimate: {
+    ...typography.sm,
+    fontWeight: fontWeights.medium,
+    color: colors.black,
+    textAlign: 'left',
+  },
+  deliveryEstimateLabel: {
+    color: colors.mutedForeground,
+  },
+  separator: {
+    marginVertical: 0,
+  },
+  detailsAnimatedContainer: {
+    overflow: 'hidden',
+    width: '100%',
+    maxHeight: SCREEN_HEIGHT * 0.4, // Maximum 40% of screen height
+  },
+  detailsScrollView: {
+    maxHeight: SCREEN_HEIGHT * 0.4,
+  },
+  detailsContent: {
     gap: spacing.md,
   },
-  sectionHeader: {
+  detailCard: {
+    backgroundColor: colors.muted,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  detailCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  sectionTitle: {
-    ...typography.base,
-    fontWeight: fontWeights.semibold,
-    color: colors.black,
-  },
-  timelineContainer: {
-    gap: spacing.md + 10, // 26px conforme Figma
-    overflow: 'visible',
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    gap: spacing.md - 4, // 12px conforme Figma
-    alignItems: 'flex-start',
-    overflow: 'visible',
-  },
-  timelineContent: {
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 36,
-  },
-  timelineLabel: {
-    ...typography.sm,
-    fontWeight: fontWeights.medium,
-    color: colors.mutedForeground,
-    lineHeight: 16,
-  },
-  timelineLabelCurrent: {
-    color: colors.primary,
-  },
-  timelineLabelComplete: {
-    color: colors.green[700],
-  },
-  timelineLabelError: {
-    color: colors.red[600] || '#dc2626',
-  },
-  paymentPendingText: {
-    ...typography.sm,
-    fontWeight: fontWeights.normal,
-    color: colors.mutedForeground,
-    marginBottom: spacing.md,
-    lineHeight: 20,
-  },
-  paymentErrorContainer: {
-    backgroundColor: colors.red[600] ? `${colors.red[600]}15` : '#dc262615',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.md,
-  },
-  paymentErrorText: {
-    ...typography.sm,
-    fontWeight: fontWeights.medium,
-    color: colors.red[600] || '#dc2626',
-  },
-  paymentCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.gray[200],
-    marginBottom: spacing.sm,
-    gap: spacing.md,
-  },
-  paymentCardSelected: {
-    borderColor: colors.primary,
-    backgroundColor: `${colors.primary}10`,
-  },
-  paymentCardContent: {
-    flex: 1,
-    gap: 2,
-  },
-  paymentMethodName: {
-    ...typography.base,
+  detailCardTitle: {
+    ...typography.lg,
     fontWeight: fontWeights.medium,
     color: colors.black,
   },
-  paymentMethodNameSelected: {
-    color: colors.primary,
+  detailCardContent: {
+    gap: spacing.sm,
   },
-  paymentMethodDetails: {
-    ...typography.sm,
-    fontWeight: fontWeights.normal,
-    color: colors.mutedForeground,
-  },
-  defaultCardLabel: {
-    ...typography.xs,
-    fontWeight: fontWeights.medium,
-    color: colors.primary,
-    marginTop: 2,
-  },
-  processPaymentButton: {
-    marginTop: spacing.md,
-  },
-  timelineDate: {
-    ...typography.xs,
-    fontWeight: fontWeights.normal,
-    color: colors.green[700],
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  infoRow: {
+  detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  infoLabel: {
+  detailLabel: {
     ...typography.sm,
     fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
     lineHeight: 16,
   },
-  infoValue: {
+  detailValue: {
     ...typography.sm,
     fontWeight: fontWeights.semibold,
     color: colors.mutedForeground,
     lineHeight: 16,
   },
-  addressCard: {
-    backgroundColor: colors.gray[50],
-    padding: spacing.lg,
-    borderRadius: borderRadius.md,
+  addressContent: {
     gap: spacing.xs,
   },
   addressStreet: {
     ...typography.base,
     fontWeight: fontWeights.medium,
     color: colors.mutedForeground,
-    lineHeight: 20.8, // 1.3 * 16px
+    lineHeight: 20.8,
   },
   addressLine: {
     ...typography.sm,
     fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
-    lineHeight: 18.2, // 1.3 * 14px
+    lineHeight: 18.2,
   },
-  // Estilos para seção de forma de pagamento (exibida quando pago)
-  paymentCardInfo: {
+  paymentCard: {
+    backgroundColor: colors.white,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md - 4, // 12px
-    backgroundColor: colors.gray[50],
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
+    gap: spacing.md - 4,
     height: 70,
   },
-  paymentCardInfoContent: {
+  paymentCardContent: {
     flex: 1,
     gap: spacing.xs,
   },
-  paymentMethodInfoName: {
+  paymentMethodName: {
     ...typography.sm,
     fontWeight: fontWeights.semibold,
     color: colors.black,
     lineHeight: 16,
   },
-  paymentMethodInfoDetails: {
+  paymentMethodDetails: {
     ...typography.sm,
     fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
-    lineHeight: 18.2, // 1.3 * 14px
+    lineHeight: 18.2,
+  },
+  summaryTitle: {
+    ...typography.lg,
+    fontWeight: fontWeights.semibold,
+    color: colors.black,
   },
   itemsList: {
     gap: spacing.sm,
   },
-  orderItemRow: {
+  itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  orderItemText: {
+  itemText: {
     ...typography.sm,
     fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
     lineHeight: 16,
   },
-  orderItemPrice: {
+  itemPrice: {
     ...typography.sm,
     fontWeight: fontWeights.semibold,
     color: colors.mutedForeground,
     lineHeight: 16,
-  },
-  separator: {
-    marginVertical: 0,
   },
   totalsList: {
     gap: spacing.sm,
@@ -937,27 +1368,30 @@ const styles = StyleSheet.create({
     ...typography.base,
     fontWeight: fontWeights.medium,
     color: colors.black,
-    lineHeight: 19.2, // 1.2 * 16px
+    lineHeight: 19.2,
   },
   finalTotalValue: {
     ...typography.lg,
     fontWeight: fontWeights.semibold,
     color: colors.primary,
-    lineHeight: 21.6, // 1.2 * 18px
+    lineHeight: 21.6,
   },
-  actionsContainer: {
-    padding: spacing.lg,
-    gap: spacing.sm,
+  toggleDetailsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
   },
-  actionButton: {
+  toggleDetailsText: {
+    ...typography.sm,
+    fontWeight: fontWeights.medium,
+    color: colors.mutedForeground,
+    textAlign: 'center',
+  },
+  paymentErrorButton: {
     width: '100%',
-  },
-  cancelButton: {
-    borderColor: colors.red[600] || '#dc2626',
-    borderWidth: 1,
-  },
-  cancelButtonText: {
-    color: colors.red[600] || '#dc2626',
+    borderRadius: 99,
+    marginBottom: spacing.sm,
   },
 });
-

@@ -255,16 +255,7 @@ function NavigationHandler() {
 }
 
 export function AppNavigator() {
-  const { isAuthenticated, loading } = useAuth();
-
-  // Mostrar loading enquanto verifica autenticação
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.white }}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
+  const { isAuthenticated } = useAuth();
 
   return (
     <NavigationContainer>

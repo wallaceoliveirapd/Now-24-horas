@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Animated, Platform, StatusBar } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Animated, Platform, StatusBar, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -45,35 +45,38 @@ const categoryImages = {
   bebida: require('../images/category/bebida.png'),
 };
 
+// Importar imagem padrão de banner
+const defaultBannerImage = require('../images/home/banners-home/default.png');
+
 // Mock stories data - TODO: substituir por dados do backend
 const initialMockStories: StoryItem[] = [
   {
     id: '1',
-    imageSource: require('../images/banners-home/default.png'),
+    imageSource: defaultBannerImage,
     title: 'Nova promoção',
     hasStory: true,
   },
   {
     id: '2',
-    imageSource: require('../images/banners-home/default.png'),
+    imageSource: defaultBannerImage,
     title: 'Produtos frescos',
     hasStory: true,
   },
   {
     id: '3',
-    imageSource: require('../images/banners-home/default.png'),
+    imageSource: defaultBannerImage,
     title: 'Delivery rápido',
     hasStory: true,
   },
   {
     id: '4',
-    imageSource: require('../images/banners-home/default.png'),
+    imageSource: defaultBannerImage,
     title: 'Ofertas do dia',
     hasStory: false,
   },
   {
     id: '5',
-    imageSource: require('../images/banners-home/default.png'),
+    imageSource: defaultBannerImage,
     title: 'Novidades',
     hasStory: true,
   },
@@ -326,6 +329,10 @@ export function Home() {
       title: 'Todos os produtos',
       filterType: 'popular',
     });
+  }, [navigation]);
+
+  const handlePromotionalBannerPress = useCallback(() => {
+    navigation.navigate('Cupons');
   }, [navigation]);
 
   const handleStoryPress = useCallback((story: StoryItem) => {
@@ -670,7 +677,7 @@ export function Home() {
                   <Skeleton width="100%" height={120} borderRadius={0} style={{ backgroundColor: colors.white }} />
                 </View>
 
-                {/* Skeleton Banner */}
+                {/* Skeleton Promotional Banner - Before Categories */}
                 <View style={styles.skeletonBanner}>
                   <Skeleton width="100%" height={144} borderRadius={8} />
                 </View>
@@ -684,23 +691,55 @@ export function Home() {
                   </View>
                 </View>
 
-                {/* Skeleton Products Section */}
-                <View style={styles.skeletonProductsSection}>
+                {/* Skeleton Promotional Banner (Cupons) - After Categories */}
+                <View style={styles.skeletonBannerCupons}>
+                  <Skeleton width="100%" height={100} borderRadius={24} />
+                </View>
+
+                {/* Skeleton Stories Section */}
+                <View style={styles.skeletonStoriesSection}>
                   <View style={styles.skeletonSectionTitle}>
                     <Skeleton width={150} height={18} borderRadius={4} />
                   </View>
-                  <View style={styles.skeletonProductsScroll}>
-                    {[1, 2, 3, 4].map((i) => (
-                      <Skeleton key={i} width={117} height={180} borderRadius={8} />
+                  <View style={styles.skeletonStoriesScroll}>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Skeleton key={i} width={72} height={72} borderRadius={999} />
                     ))}
                   </View>
                 </View>
 
-                {/* Skeleton Popular Section */}
-                <View style={styles.skeletonPopularSection}>
-                  <View style={styles.skeletonSectionTitle}>
-                    <Skeleton width={150} height={18} borderRadius={4} />
+                {/* Skeleton Itens em oferta Section */}
+                <View style={styles.skeletonProductsSection}>
+                  <View style={styles.skeletonSectionHeader}>
+                    <View style={styles.skeletonSectionTitleContainer}>
+                      <Skeleton width={150} height={18} borderRadius={4} />
+                      <Skeleton width={60} height={14} borderRadius={4} />
+                    </View>
                   </View>
+                  <View style={styles.skeletonProductsScroll}>
+                    {[1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} width={163} height={180} borderRadius={8} />
+                    ))}
+                  </View>
+                </View>
+
+                {/* Skeleton Todos os produtos Section */}
+                <View style={styles.skeletonPopularSection}>
+                  <View style={styles.skeletonSectionHeader}>
+                    <View style={styles.skeletonSectionTitleContainer}>
+                      <Skeleton width={150} height={18} borderRadius={4} />
+                      <Skeleton width={60} height={14} borderRadius={4} />
+                    </View>
+                  </View>
+                  
+                  {/* Skeleton Filtros */}
+                  <View style={styles.skeletonFiltersContainer}>
+                    {[1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} width={80} height={32} borderRadius={16} />
+                    ))}
+                  </View>
+
+                  {/* Skeleton Grid de produtos */}
                   <View style={styles.skeletonPopularGrid}>
                     {[1, 2, 3, 4, 5, 6].map((i) => (
                       <View key={i} style={styles.skeletonPopularCard}>
@@ -745,9 +784,15 @@ export function Home() {
                   </View>
                 ) : (
                   <>
-                    {/* Promotional Banner */}
-                    <View style={styles.bannerContainer}>
-                      <PromotionalBanner />
+                    {/* Promotional Banner - Before Categories */}
+                    <View style={styles.promotionalBannerContainer}>
+                      <View style={styles.promotionalBannerWrapper}>
+                        <Image
+                          source={defaultBannerImage}
+                          style={styles.promotionalBannerImage}
+                          resizeMode="cover"
+                        />
+                      </View>
                     </View>
 
                     {/* Category List - Horizontal Scrollable */}
@@ -756,6 +801,11 @@ export function Home() {
                         categories={categoryItems}
                         onCategoryPress={handleCategoryPress}
                       />
+                    </View>
+
+                    {/* Promotional Banner (Cupons) - After Categories */}
+                    <View style={styles.bannerContainer}>
+                      <PromotionalBanner onPress={handlePromotionalBannerPress} />
                     </View>
 
                     {/* Fique por dentro Section - Stories */}
@@ -1576,9 +1626,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     overflow: 'visible', // Permite que os cards saiam das bordas
   },
+  promotionalBannerContainer: {
+    paddingHorizontal: spacing.md, // 16px
+    paddingTop: spacing.md, // 16px
+    paddingBottom: 0,
+  },
+  promotionalBannerWrapper: {
+    width: '100%',
+    aspectRatio: 398 / 224, // Aspect ratio da imagem original (398x224)
+  },
+  promotionalBannerImage: {
+    width: '100%',
+    height: '100%',
+  },
   bannerContainer: {
     paddingHorizontal: spacing.md, // 16px
-    paddingTop: 8, // 24px
+    paddingTop: spacing.md, // 16px
     paddingBottom: 0,
   },
   categoryContainer: {
@@ -1728,17 +1791,44 @@ const styles = StyleSheet.create({
       },
       skeletonBanner: {
         paddingHorizontal: spacing.md,
-        paddingTop: spacing.lg,
+        paddingTop: spacing.md,
+        paddingBottom: 0,
+      },
+      skeletonBannerCupons: {
+        paddingHorizontal: spacing.md,
+        paddingTop: spacing.md,
         paddingBottom: 0,
       },
       skeletonCategoryContainer: {
-        paddingTop: spacing.lg,
+        paddingTop: 16,
         paddingBottom: 0,
+      },
+      skeletonStoriesSection: {
+        width: '100%',
+        paddingTop: 16,
+        paddingBottom: 0,
+      },
+      skeletonStoriesScroll: {
+        flexDirection: 'row',
+        gap: 12,
+        paddingLeft: spacing.md,
+        paddingRight: spacing.md,
       },
       skeletonProductsSection: {
         width: '100%',
         paddingTop: spacing.lg,
-        paddingHorizontal: spacing.md,
+      },
+      skeletonSectionHeader: {
+        paddingLeft: spacing.md,
+        paddingRight: spacing.md,
+        paddingBottom: spacing.md,
+      },
+      skeletonSectionTitleContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        width: '100%',
+        gap: spacing.sm,
       },
       skeletonSectionTitle: {
         marginBottom: spacing.md,
@@ -1751,17 +1841,24 @@ const styles = StyleSheet.create({
       },
       skeletonPopularSection: {
         width: '100%',
-        paddingTop: spacing.lg,
+        paddingTop: spacing.lg + 24,
+      },
+      skeletonFiltersContainer: {
+        flexDirection: 'row',
+        gap: 6,
         paddingHorizontal: spacing.md,
+        paddingBottom: spacing.md,
       },
       skeletonPopularGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         justifyContent: 'space-between',
-        gap: spacing.md,
+        paddingHorizontal: spacing.md,
+        paddingBottom: spacing.lg,
+        rowGap: 12,
       },
       skeletonPopularCard: {
-        width: 191,
+        width: '48%',
       },
       addressesList: {
         gap: spacing.md,
